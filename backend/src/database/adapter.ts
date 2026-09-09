@@ -48,6 +48,7 @@ export interface DatabaseAdapter {
   getCustomerById(id: string): Promise<Customer | null>;
   getPaymentByTransaction(txnId: string): Promise<Payment | null>;
   getBookingByTransaction(txnId: string): Promise<Booking | null>;
+  createBooking(input: Omit<Booking, 'id' | 'created_at'>): Promise<Booking>;
   listSystemLogs(incidentId?: string, limit?: number): Promise<SystemLog[]>;
   addSystemLog(log: Omit<SystemLog, 'id' | 'created_at'>): Promise<SystemLog>;
   createTicket(ticket: Omit<Ticket, 'id' | 'created_at'>): Promise<Ticket>;

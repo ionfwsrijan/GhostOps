@@ -185,6 +185,12 @@ export class SupabaseAdapter implements DatabaseAdapter {
     return (data as Booking) ?? null;
   }
 
+  async createBooking(input: Omit<Booking, 'id' | 'created_at'>): Promise<Booking> {
+    const { data, error } = await this.db.from('bookings').insert(input).select().single();
+    if (error) throw new Error(`[supabase] create booking: ${error.message}`);
+    return data as Booking;
+  }
+
   async listSystemLogs(incidentId?: string, limit = 50): Promise<SystemLog[]> {
     let q = this.db.from('system_logs').select('*').order('created_at', { ascending: false }).limit(limit);
     if (incidentId) q = q.eq('incident_id', incidentId);

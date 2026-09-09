@@ -93,8 +93,8 @@ export interface AgentAction {
   incident_id: string;
   tool: string;
   action: string;
-  input?: Record<string, unknown>;
-  output?: Record<string, unknown>;
+  input?: unknown;
+  output?: unknown;
   result: string;
   risk: RiskLevel;
   status: ActionStatus;

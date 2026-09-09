@@ -424,6 +424,12 @@ export class MemoryAdapter implements DatabaseAdapter {
     return this.bookings.find((b) => b.payment_id === payment.id) ?? null;
   }
 
+  async createBooking(input: Omit<Booking, 'id' | 'created_at'>): Promise<Booking> {
+    const full: Booking = { id: randomUUID(), ...input, created_at: new Date().toISOString() };
+    this.bookings.push(full);
+    return full;
+  }
+
   async listSystemLogs(incidentId?: string, limit = 50): Promise<SystemLog[]> {
     const filtered = incidentId ? this.systemLogs.filter((l) => l.incident_id === incidentId) : this.systemLogs;
     return [...filtered].sort((a, b) => (b.created_at! > a.created_at! ? 1 : -1)).slice(0, limit);
