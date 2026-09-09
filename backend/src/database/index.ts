@@ -4,8 +4,8 @@ import { DatabaseAdapter } from './adapter.js';
 import { SupabaseAdapter } from './supabaseAdapter.js';
 import { MemoryAdapter } from './memoryAdapter.js';
 
-export { DatabaseAdapter };
-export * from './types.js';
+export type { DatabaseAdapter };
+export type * from './types.js';
 
 /**
  * Creates a Supabase client (anon key) usable from the server.

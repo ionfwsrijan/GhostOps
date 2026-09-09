@@ -176,6 +176,10 @@ export class SupabaseAdapter implements DatabaseAdapter {
     return this.getByField<Payment>('payments', 'transaction_id', txnId);
   }
 
+  async createPayment(input: Omit<Payment, 'id' | 'created_at'>): Promise<Payment> {
+    return this.insert<Payment>('payments', input);
+  }
+
   async getBookingByTransaction(txnId: string): Promise<Booking | null> {
     // bookings reference payments by id; resolve transaction -> payment -> booking
     const payment = await this.getPaymentByTransaction(txnId);

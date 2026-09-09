@@ -30,7 +30,7 @@ export class MemoryAdapter implements DatabaseAdapter {
   private notifications: Notification[] = [];
   private approvals: ApprovalRequest[] = [];
 
-  private codeCounter = 1040;
+  private codeCounter = 1042;
 
   constructor(seed = true) {
     if (seed) this.seed();
@@ -416,6 +416,12 @@ export class MemoryAdapter implements DatabaseAdapter {
 
   async getPaymentByTransaction(txnId: string): Promise<Payment | null> {
     return this.payments.find((p) => p.transaction_id === txnId) ?? null;
+  }
+
+  async createPayment(input: Omit<Payment, 'id' | 'created_at'>): Promise<Payment> {
+    const full: Payment = { id: randomUUID(), ...input, created_at: new Date().toISOString() };
+    this.payments.push(full);
+    return full;
   }
 
   async getBookingByTransaction(txnId: string): Promise<Booking | null> {
