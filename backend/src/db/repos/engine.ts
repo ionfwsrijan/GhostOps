@@ -18,7 +18,7 @@ export const engineRepo = {
       );
       if (existing.rows[0]) return existing.rows[0];
       const { rows } = await client.query<AgentRunRow>(
-        `INSERT INTO agent_runs (incident_id, correlation_id, max_attempts) VALUES ($1,$2,$3) RETURNING ${RUN_COLS}`,
+        `INSERT INTO agent_runs (incident_id, correlation_id, max_attempts, started_at) VALUES ($1,$2,$3, now()) RETURNING ${RUN_COLS}`,
         [incident_id, correlation_id, maxAttempts]
       );
       return rows[0];
@@ -51,12 +51,10 @@ export const engineRepo = {
       params.push(patch.statusSnapshot);
     }
     if (patch?.startedAt !== undefined) {
-      set.push(`started_at = $${params.length + 1}`);
-      params.push(patch.startedAt);
+      set.push(`started_at = now()`);
     }
     if (patch?.completedAt !== undefined) {
-      set.push(`completed_at = $${params.length + 1}`);
-      params.push(patch.completedAt);
+      set.push(`completed_at = now()`);
     }
     const { rows } = await getPool().query<AgentRunRow>(
       `UPDATE agent_runs SET ${set.join(', ')} WHERE id = $1 RETURNING ${RUN_COLS}`,

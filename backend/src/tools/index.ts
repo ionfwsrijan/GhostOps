@@ -22,7 +22,7 @@ const TOOLS: ExecutableTool[] = [
     async execute(args: unknown) {
       const { transactionId } = args as { transactionId: string };
       const p = await incidentRepo.getPaymentByTransaction(transactionId);
-      if (!p) return { success: false, summary: 'No payment found for transaction', data: { exists: false, transactionId } };
+      if (!p) return { success: true, summary: 'No payment found for transaction', data: { exists: false, transactionId } };
       return {
         success: true,
         summary: `Payment ${p.transactionId} status=${p.status} amount=${Number(p.amount)} ${p.currency}`,
@@ -38,7 +38,7 @@ const TOOLS: ExecutableTool[] = [
     async execute(args: unknown) {
       const { transactionId } = args as { transactionId: string };
       const b = await incidentRepo.getBookingByTransaction(transactionId);
-      if (!b) return { success: false, summary: 'No booking exists for transaction', data: { exists: false, transactionId } };
+      if (!b) return { success: true, summary: 'No booking exists for transaction', data: { exists: false, transactionId } };
       return {
         success: true,
         summary: `Booking ${b.bookingCode} status=${b.status} movie=${b.movieTitle}`,
@@ -54,7 +54,7 @@ const TOOLS: ExecutableTool[] = [
     async execute(args: unknown) {
       const { transactionId } = args as { transactionId: string };
       const b = await incidentRepo.getBookingByTransaction(transactionId);
-      if (!b) return { success: false, summary: 'No booking record found', data: { exists: false } };
+      if (!b) return { success: true, summary: 'No booking record found', data: { exists: false } };
       return {
         success: true,
         summary: `Booking ${b.bookingCode} status=${b.status}`,
@@ -123,7 +123,7 @@ const TOOLS: ExecutableTool[] = [
         transaction_id: transactionId,
         movie_title: 'Ticketed event',
         cinema: 'City Cineplex',
-        amount: amount ?? Number(payment.amount),
+        amount: amount && amount > 0 ? amount : Number(payment.amount),
       });
       return {
         success: true,
@@ -160,7 +160,7 @@ const TOOLS: ExecutableTool[] = [
     name: 'create_jira_ticket',
     risk: 'low',
     description: 'Queue an engineering ticket for the platform team.',
-    args: z.object({ summary: z.string(), description: z.string().optional() }),
+    args: z.object({ summary: z.string().optional(), description: z.string().optional() }),
     async execute(args: unknown, ctx: ToolContext) {
       const { summary, description } = args as { summary: string; description?: string };
       const out = await queueRepo.enqueueOutbox({

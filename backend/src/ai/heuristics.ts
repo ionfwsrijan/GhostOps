@@ -152,7 +152,7 @@ export function planHeuristically(incident: IncidentRow, analysis: RootCauseAnal
       actions: [
         { actionKey: 'retry_booking', params: { transactionId: txn, amount }, confidence: analysis.confidence, reasoning: 'Re-create the missing booking from the confirmed payment (idempotent).' },
         { actionKey: 'send_customer_notification', params: { subject: 'Your booking is confirmed' }, confidence: 0.95, reasoning: 'Notify the customer the booking is now confirmed.' },
-        { actionKey: 'create_jira_ticket', params: {}, confidence: 0.9, reasoning: 'File an engineering ticket for the timeout remediation.' },
+        { actionKey: 'create_jira_ticket', params: { summary: `[${incident.incidentCode}] booking creation recovered after ${analysis.rootCause}` }, confidence: 0.9, reasoning: 'File an engineering ticket for the timeout remediation.' },
         { actionKey: 'send_slack_notification', params: { channel: 'on-call', text: `${incident.incidentCode}: booking creation recovered after timeout` }, confidence: 0.9, reasoning: 'Inform the on-call team.' },
       ],
     };
@@ -164,7 +164,7 @@ export function planHeuristically(incident: IncidentRow, analysis: RootCauseAnal
       actions: [
         { actionKey: 'refund_customer', params: { transactionId: txn, amount }, confidence: 0.91, reasoning: 'Refund the duplicate charge.' },
         { actionKey: 'send_customer_notification', params: { subject: 'Refund processed' }, confidence: 0.9, reasoning: 'Inform the customer the duplicate charge was refunded.' },
-        { actionKey: 'create_jira_ticket', params: {}, confidence: 0.85, reasoning: 'Enqueue idempotency-key fix.' },
+        { actionKey: 'create_jira_ticket', params: { summary: `[${incident.incidentCode}] duplicate charge refund processed` }, confidence: 0.85, reasoning: 'Enqueue idempotency-key fix.' },
       ],
     };
   }
@@ -174,7 +174,7 @@ export function planHeuristically(incident: IncidentRow, analysis: RootCauseAnal
       reasoning: 'Payment captured but booking not created. Retry booking safely; escalate to engineering if it recurs.',
       actions: [
         { actionKey: 'retry_booking', params: { transactionId: txn }, confidence: 0.72, reasoning: 'Attempt safe re-creation of the booking.' },
-        { actionKey: 'create_jira_ticket', params: {}, confidence: 0.8, reasoning: 'Track gateway callback reliability.' },
+        { actionKey: 'create_jira_ticket', params: { summary: `[${incident.incidentCode}] gateway callback reliability` }, confidence: 0.8, reasoning: 'Track gateway callback reliability.' },
       ],
     };
   }
@@ -183,7 +183,7 @@ export function planHeuristically(incident: IncidentRow, analysis: RootCauseAnal
     reasoning: 'Unknown root cause — collect diagnostics and escalate to engineering for deeper triage.',
     actions: [
       { actionKey: 'collect_diagnostics', params: { transactionId: txn }, confidence: 0.6, reasoning: 'Gather more diagnostics before acting.' },
-      { actionKey: 'create_jira_ticket', params: {}, confidence: 0.75, reasoning: 'Escalate for manual review.' },
+      { actionKey: 'create_jira_ticket', params: { summary: `[${incident.incidentCode}] root cause unresolved requiring manual triage` }, confidence: 0.75, reasoning: 'Escalate for manual review.' },
     ],
   };
 }

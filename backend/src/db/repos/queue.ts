@@ -134,13 +134,19 @@ export const queueRepo = {
     return rows[0];
   },
 
+  /**
+   * Lease N due outbox rows (SKIP LOCKED + instance lease) so multiple
+   * workers never dispatch the same integration message twice even while a
+   * row is still mid-flight (status flips to delivered/failed on completion).
+   */
   async claimOutbox(instanceId: string, limit = 10): Promise<OutboxRow[]> {
     const { rows } = await getPool().query<OutboxRow>(
       `UPDATE outbox o
-       SET status = 'pending'  -- reclaimed; worker flips to delivered/failed
+       SET status = 'pending', instance_id = $1, locked_at = now()
        WHERE o.id IN (
          SELECT id FROM outbox
          WHERE status = 'pending' AND next_attempt_at <= now()
+           AND (instance_id IS NULL OR locked_at IS NULL OR locked_at < now() - make_interval(secs => 60))
          ORDER BY next_attempt_at ASC
          LIMIT $2
          FOR UPDATE SKIP LOCKED
@@ -153,16 +159,27 @@ export const queueRepo = {
     return rows;
   },
 
+  /** Release outbox leases older than the lease window (crashed worker). */
+  async reclaimStaleOutbox(leaseSecs = 60): Promise<number> {
+    const { rowCount } = await getPool().query<OutboxRow>(
+      `UPDATE outbox SET instance_id = NULL, locked_at = NULL
+       WHERE status = 'pending' AND instance_id IS NOT NULL AND locked_at < now() - make_interval(secs => $1)`,
+      [leaseSecs]
+    );
+    return rowCount ?? 0;
+  },
+
   async completeOutbox(id: string, providerRef?: string): Promise<void> {
     await getPool().query(
-      `UPDATE outbox SET status = 'delivered', provider_ref = COALESCE($2, provider_ref), delivered_at = now(), last_error = NULL
+      `UPDATE outbox SET status = 'delivered', provider_ref = COALESCE($2, provider_ref), delivered_at = now(), last_error = NULL,
+              instance_id = NULL, locked_at = NULL
        WHERE id = $1`,
       [id, providerRef ?? null]
     );
   },
 
   async skipOutbox(id: string, reason: string): Promise<void> {
-    await getPool().query(`UPDATE outbox SET status = 'skipped', last_error = $2, delivered_at = now() WHERE id = $1`, [id, reason]);
+    await getPool().query(`UPDATE outbox SET status = 'skipped', last_error = $2, delivered_at = now(), instance_id = NULL, locked_at = NULL WHERE id = $1`, [id, reason]);
   },
 
   async failOutbox(id: string, error: string): Promise<OutboxRow | null> {
@@ -170,7 +187,8 @@ export const queueRepo = {
       `UPDATE outbox SET attempts = attempts + 1, last_error = $2,
          next_attempt_at = CASE WHEN attempts + 1 >= max_attempts THEN now()
                                 ELSE now() + make_interval(secs => (pow(2, LEAST(attempts + 1, 8))::int)) END,
-         status = CASE WHEN attempts + 1 >= max_attempts THEN 'failed' ELSE 'pending' END
+         status = CASE WHEN attempts + 1 >= max_attempts THEN 'failed' ELSE 'pending' END,
+         instance_id = NULL, locked_at = NULL
        WHERE id = $1
        RETURNING id, integration, event_type AS "eventType", payload, status, attempts, max_attempts AS "maxAttempts",
                  next_attempt_at AS "nextAttemptAt", provider_ref AS "providerRef", last_error AS "lastError",

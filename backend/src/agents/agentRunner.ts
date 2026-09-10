@@ -80,9 +80,10 @@ export class AgentRunner {
       let run = await engineRepo.getActiveRun(incidentId);
       if (!run) {
         run = await engineRepo.createRun(incidentId, incidentId, env.AGENT_JOB_MAX_ATTEMPTS);
+      } else if (!TERMINAL_RUN.includes(run.state)) {
+        await engineRepo.incrementAttempt(run.id, run.attempt + 1);
       }
       if (TERMINAL_RUN.includes(run.state)) return;
-      await engineRepo.incrementAttempt(run.id, run.attempt + 1);
       await this.#execute(incidentId, run, opts?.jobId);
     } catch (err) {
       logger.error({ incidentId, err }, 'agent: run crashed');

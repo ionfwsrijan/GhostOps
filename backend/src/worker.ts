@@ -48,6 +48,8 @@ export class Worker {
     try {
       const reclaimed = await queueRepo.reclaimStale(instanceId, 60_000, 25);
       if (reclaimed.length) logger.info({ n: reclaimed.length }, 'worker: reclaimed stale job leases');
+      const outboxReclaimed = await queueRepo.reclaimStaleOutbox(60);
+      if (outboxReclaimed) logger.info({ n: outboxReclaimed }, 'worker: reclaimed stale outbox leases');
     } catch (err) {
       logger.warn({ err }, 'worker: reclaim failed');
     } finally {

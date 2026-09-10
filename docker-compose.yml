@@ -1,0 +1,81 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    shm_size: 128mb
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-ghostops}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ghostops_dev_password}
+      POSTGRES_DB: ${POSTGRES_DB:-ghostops}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "${POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ghostops} -d ${POSTGRES_DB:-ghostops}"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: "4000"
+      DATABASE_URL: postgres://${POSTGRES_USER:-ghostops}:${POSTGRES_PASSWORD:-ghostops_dev_password}@db:5432/${POSTGRES_DB:-ghostops}
+      LOG_PRETTY: ${LOG_PRETTY:-false}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:5173}
+      SESSION_SECRET: ${SESSION_SECRET:-compose-dev-session-secret-change-me-0123456789}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      INTEGRATIONS_ENCRYPTION_KEY: ${INTEGRATIONS_ENCRYPTION_KEY:-compose-dev-encryption-key-0123456789abcdef}
+      AGENT_MAX_CONCURRENT_RUNS: ${AGENT_MAX_CONCURRENT_RUNS:-3}
+      AGENT_STEP_DELAY_MS: ${AGENT_STEP_DELAY_MS:-450}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@ghostops.local}
+      ADMIN_INITIAL_PASSWORD: ${ADMIN_INITIAL_PASSWORD:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+      SLACK_ENABLED: ${SLACK_ENABLED:-false}
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
+      JIRA_ENABLED: ${JIRA_ENABLED:-false}
+      JIRA_BASE_URL: ${JIRA_BASE_URL:-}
+      JIRA_EMAIL: ${JIRA_EMAIL:-}
+      JIRA_API_TOKEN: ${JIRA_API_TOKEN:-}
+      JIRA_PROJECT_KEY: ${JIRA_PROJECT_KEY:-OPS}
+      EMAIL_ENABLED: ${EMAIL_ENABLED:-false}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      N8N_ENABLED: ${N8N_ENABLED:-false}
+      N8N_BASE_URL: ${N8N_BASE_URL:-}
+      N8N_WEBHOOK_PATH: ${N8N_WEBHOOK_PATH:-/webhook/ghostops}
+      PAYMENT_PROVIDER_API_URL: ${PAYMENT_PROVIDER_API_URL:-}
+      PAYMENT_PROVIDER_API_KEY: ${PAYMENT_PROVIDER_API_KEY:-}
+      PAYMENT_WEBHOOK_SECRET: ${PAYMENT_WEBHOOK_SECRET:-}
+      BOOKING_WEBHOOK_SECRET: ${BOOKING_WEBHOOK_SECRET:-}
+      MONITORING_WEBHOOK_SECRET: ${MONITORING_WEBHOOK_SECRET:-}
+      SUPPORT_WEBHOOK_SECRET: ${SUPPORT_WEBHOOK_SECRET:-}
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "4000:4000"
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+      args:
+        VITE_API_PROXY: http://backend:4000
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "5173:5173"
+
+volumes:
+  pgdata:

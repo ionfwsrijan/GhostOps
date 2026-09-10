@@ -13,29 +13,42 @@ dotenv.config({ path: path.resolve(__dirname, '../../.env') });
  * degrade deliberately (visible in /health and /meta) instead of silently
  * pretending to work.
  */
+/**
+ * Parse an env boolean correctly. `z.coerce.boolean()` treats any non-empty
+ * string (including "false"/"0") as `true` — this preserves intent and
+ * supports unset → fallback, "1"/"true"/"yes"/"on" → true, else false.
+ */
+function preBool(fallback = false): z.ZodEffects<z.ZodBoolean, boolean, unknown> {
+  return z.preprocess((v) => {
+    if (v === undefined || v === null || v === '') return fallback;
+    if (typeof v === 'boolean') return v;
+    return !['false', '0', 'no', 'off'].includes(String(v).trim().toLowerCase());
+  }, z.boolean());
+}
+
 const EnvSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().positive().default(4000),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
-  LOG_PRETTY: z.coerce.boolean().default(false),
+  LOG_PRETTY: preBool(),
 
   // DATABASE (required — there is no in-memory fallback anymore)
   DATABASE_URL: z.string().url().refine((u) => u.startsWith('postgres://') || u.startsWith('postgresql://'), 'DATABASE_URL must be a postgres:// URL'),
   DB_POOL_SIZE: z.coerce.number().int().positive().default(10),
   DB_STATEMENT_TIMEOUT_MS: z.coerce.number().int().nonnegative().default(10_000),
-  DB_HARD_CONNECTIONS: z.coerce.boolean().default(false),
+  DB_HARD_CONNECTIONS: preBool(),
 
   // Auth
   SESSION_SECRET: z.string().min(32, 'SESSION_SECRET must be at least 32 chars').default('dev-only-session-secret-change-me-0123456789'),
   SESSION_TTL_DAYS: z.coerce.number().int().positive().default(14),
-  COOKIE_SECURE: z.coerce.boolean().default(false),
+  COOKIE_SECURE: preBool(),
 
   // Secrets at rest for integration credentials
   INTEGRATIONS_ENCRYPTION_KEY: z.string().min(32, 'INTEGRATIONS_ENCRYPTION_KEY must be at least 32 chars').default('dev-only-encryption-key-0123456789abcdef'),
 
   // API + origin
   CORS_ORIGIN: z.string().default('http://localhost:5173'),
-  TRUST_PROXY: z.coerce.boolean().default(false),
+  TRUST_PROXY: preBool(),
   RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(60_000),
   RATE_LIMIT_MAX: z.coerce.number().int().positive().default(120),
 
@@ -53,19 +66,19 @@ const EnvSchema = z.object({
   OPENAI_MODEL: z.string().default('gpt-4o-mini'),
 
   // Integrations (optional; health reports disconnected when absent)
-  SLACK_ENABLED: z.coerce.boolean().default(false),
+  SLACK_ENABLED: preBool(),
   SLACK_WEBHOOK_URL: z.string().default(''),
-  JIRA_ENABLED: z.coerce.boolean().default(false),
+  JIRA_ENABLED: preBool(),
   JIRA_BASE_URL: z.string().default(''),
   JIRA_EMAIL: z.string().default(''),
   JIRA_API_TOKEN: z.string().default(''),
   JIRA_PROJECT_KEY: z.string().default('OPS'),
-  EMAIL_ENABLED: z.coerce.boolean().default(false),
+  EMAIL_ENABLED: preBool(),
   SMTP_HOST: z.string().default(''),
   SMTP_PORT: z.coerce.number().int().positive().default(587),
   SMTP_USER: z.string().default(''),
   SMTP_PASS: z.string().default(''),
-  N8N_ENABLED: z.coerce.boolean().default(false),
+  N8N_ENABLED: preBool(),
   N8N_BASE_URL: z.string().default(''),
   N8N_WEBHOOK_PATH: z.string().default('/webhook/ghostops'),
 
