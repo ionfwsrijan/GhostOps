@@ -28,7 +28,9 @@ router.post('/integrations/health-check', requireAuth(), requireRole('admin', 'o
 // so HMAC verification sees the exact request bytes.
 
 function webhookHandler(provider: (typeof WEBHOOK_PROVIDERS)[number]) {
-  return (req: Request, res: Response) => handleWebhookRaw(provider, req, res);
+  return asyncHandler(async (req: Request, res: Response) => {
+    await handleWebhookRaw(provider, req, res);
+  });
 }
 
 async function handleWebhookRaw(provider: (typeof WEBHOOK_PROVIDERS)[number], req: Request, res: Response): Promise<void> {

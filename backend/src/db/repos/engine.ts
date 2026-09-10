@@ -1,5 +1,5 @@
 import { getPool, withTx } from '../pool.js';
-import { AgentRunRow, AgentRunState, ApprovalRow, ActionRow } from '../types.js';
+import { AgentRunRow, AgentRunState, ApprovalRow, ActionRow, ActionStatus } from '../types.js';
 
 const RUN_COLS = `id, incident_id AS "incidentId", correlation_id AS "correlationId", state, attempt,
   max_attempts AS "maxAttempts", status_snapshot AS "statusSnapshot", started_at AS "startedAt",
@@ -144,15 +144,15 @@ export const engineRepo = {
 
   async createAction(a: {
     incident_id: string; run_id?: string; plan_index: number; action_key: string; label: string;
-    tool: string; risk: ActionRow['risk']; input?: Record<string, unknown>;
+    tool: string; risk: ActionRow['risk']; input?: Record<string, unknown>; status?: ActionStatus;
   }): Promise<ActionRow> {
     const { rows } = await getPool().query<ActionRow>(
-      `INSERT INTO actions (incident_id, run_id, plan_index, action_key, label, tool, risk, input)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+      `INSERT INTO actions (incident_id, run_id, plan_index, action_key, label, tool, risk, input, status)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
        RETURNING id, incident_id AS "incidentId", run_id AS "runId", plan_index AS "planIndex",
                  action_key AS "actionKey", label, tool, risk, input, output, status, result,
                  executed_at AS "executedAt", created_at AS "createdAt"`,
-      [a.incident_id, a.run_id ?? null, a.plan_index, a.action_key, a.label, a.tool, a.risk, a.input ?? {}]
+      [a.incident_id, a.run_id ?? null, a.plan_index, a.action_key, a.label, a.tool, a.risk, a.input ?? {}, a.status ?? 'pending']
     );
     return rows[0];
   },

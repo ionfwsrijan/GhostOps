@@ -30,6 +30,15 @@ export const queueRepo = {
     return rows[0];
   },
 
+  /** True when a live (pending/claimed) job already exists for the dedupe key. */
+  async hasLiveJobByDedupe(dedupe: string): Promise<boolean> {
+    const existing = await getPool().query<{ n: string }>(
+      `SELECT count(*) AS n FROM jobs WHERE payload->>'dedupeKey' = $1 AND status IN ('pending','claimed')`,
+      [dedupe]
+    );
+    return Number(existing.rows[0]?.n ?? 0) > 0;
+  },
+
   /**
    * Atomically claim N due jobs using FOR UPDATE SKIP LOCKED so multiple
    * workers never pick up the same row.

@@ -99,16 +99,6 @@ export function analyzeRootCauseHeuristically(_incident: IncidentRow, evidence: 
     };
   }
 
-  if (paymentOk && bookingMissing) {
-    return {
-      rootCause: 'payment_gateway_failure',
-      confidence: 0.72,
-      explanation: 'Payment was captured but no booking followed. Likely a write-handler failure after gateway callback.',
-      evidence: ['Payment successful', 'Booking record missing', 'No timeout found in logs'],
-      nextInvestigationSteps: ['db_find_record', 'search_logs'],
-    };
-  }
-
   if (duplicates && (duplicates as number) > 0) {
     return {
       rootCause: 'duplicate_transaction',
@@ -116,6 +106,16 @@ export function analyzeRootCauseHeuristically(_incident: IncidentRow, evidence: 
       explanation: 'The customer was charged more than once for the same intent.',
       evidence: [`${duplicates} duplicate transaction(s) detected`, 'Payment successful'],
       nextInvestigationSteps: ['search_logs'],
+    };
+  }
+
+  if (paymentOk && bookingMissing) {
+    return {
+      rootCause: 'payment_gateway_failure',
+      confidence: 0.72,
+      explanation: 'Payment was captured but no booking followed. Likely a write-handler failure after gateway callback.',
+      evidence: ['Payment successful', 'Booking record missing', 'No timeout found in logs'],
+      nextInvestigationSteps: ['db_find_record', 'search_logs'],
     };
   }
 

@@ -49,6 +49,7 @@ class ActionService {
         tool: def.key,
         risk: def.risk,
         input: input.params ?? {},
+        status: 'pending_approval',
       });
       const expires = new Date(Date.now() + env.APPROVAL_TTL_HOURS * 3600_000);
       const approval = await engineRepo.createApproval({

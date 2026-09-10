@@ -206,7 +206,7 @@ export class AgentRunner {
       } else if (decision.required) {
         // Need human approval → pause.
         const label = definition.label;
-        await engineRepo.createAction({ incident_id: incidentId, run_id: run.id, plan_index: i, action_key: step.actionKey, label, tool: definition.key, risk: definition.risk, input: step.params });
+        await engineRepo.createAction({ incident_id: incidentId, run_id: run.id, plan_index: i, action_key: step.actionKey, label, tool: definition.key, risk: definition.risk, input: step.params, status: 'pending_approval' });
         const expires = new Date(Date.now() + env.APPROVAL_TTL_HOURS * 3600_000);
         const approval = await engineRepo.createApproval({ incident_id: incidentId, run_id: run.id, action_key: step.actionKey, title: label, description: `${step.reasoning}\nImpact: ${definition.impact}`, risk: definition.risk, ai_recommendation: `confidence ${Math.round(step.confidence * 100)}%`, expires_at: expires.toISOString() });
         snapshot.planIndex = i;

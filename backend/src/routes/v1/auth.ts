@@ -87,8 +87,8 @@ router.get('/api-keys', requireAuth(), requireRole('admin', 'operator'), asyncHa
 router.post('/api-keys', requireAuth(), requireRole('admin', 'operator'), asyncHandler(async (req, res) => {
   const body = apiKeySchema.safeParse(req.body);
   if (!body.success) throw fromZod(body.error);
-  const secret = `gho_live_${crypto.randomBytes(18).toString('base64url').slice(0, 32)}`;
-  const prefix = secret.slice(0, 14);
+  const prefix = `gho_live_${crypto.randomBytes(6).toString('base64url')}`;
+  const secret = `${prefix}.${crypto.randomBytes(18).toString('base64url').slice(0, 32)}`;
   const key = await authRepo.createApiKey({
     name: body.data.name,
     prefix,

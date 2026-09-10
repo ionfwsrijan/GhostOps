@@ -7,14 +7,16 @@ import { logger } from '../logger.js';
  */
 export const investigationService = {
   async startAgent(incidentId: string): Promise<{ jobId?: string; deduped: boolean }> {
+    const dedupe = `agent_run:${incidentId}`;
+    const alreadyQueued = await queueRepo.hasLiveJobByDedupe(dedupe);
     const job = await queueRepo.enqueueJob({
       kind: 'agent_run',
       payload: { incidentId },
-      dedupe: `agent_run:${incidentId}`,
+      dedupe,
       maxAttempts: 5,
     });
-    logger.info({ incidentId, jobId: job.id }, 'investigation: agent queued');
-    return { jobId: job.id, deduped: job.status === 'pending' && !!job.id };
+    logger.info({ incidentId, jobId: job.id, deduped: alreadyQueued }, 'investigation: agent queued');
+    return { jobId: job.id, deduped: alreadyQueued };
   },
 
   async reconcile(incidentId: string): Promise<void> {
