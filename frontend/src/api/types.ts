@@ -1,4 +1,5 @@
-// Shared GhostOps data types (mirror of backend/src/database/types.ts)
+// GhostOps shared data types (mirror of backend/src/db/types.ts — camelCase as
+// returned by the /api/v1 repositories).
 
 export type IncidentStatus =
   | 'detected'
@@ -7,123 +8,135 @@ export type IncidentStatus =
   | 'awaiting_approval'
   | 'resolving'
   | 'resolved'
-  | 'failed';
+  | 'failed'
+  | 'cancelled';
 
 export type IncidentSeverity = 'critical' | 'high' | 'medium' | 'low';
 export type RiskLevel = 'low' | 'medium' | 'high';
+export type UserRole = 'admin' | 'operator' | 'readonly';
 
-export interface Customer {
+export interface User {
   id: string;
-  customer_code: string;
+  email: string;
   name: string;
-  email?: string;
-  phone?: string;
-  city?: string;
-  loyalty_tier?: string;
-}
-
-export interface Payment {
-  id: string;
-  transaction_id: string;
-  customer_id?: string;
-  amount: number;
-  currency?: string;
-  status: string;
-  payment_method?: string;
-  gateway?: string;
-  paid_at?: string;
-}
-
-export interface Booking {
-  id: string;
-  booking_code: string;
-  customer_id?: string;
-  payment_id?: string;
-  movie_title: string;
-  cinema?: string;
-  city?: string;
-  show_time?: string;
-  seats?: string[];
-  amount?: number;
-  status: string;
+  role: UserRole;
 }
 
 export interface Incident {
   id: string;
-  incident_code: string;
+  incidentCode: string;
   title: string;
   issue: string;
-  description?: string;
+  description?: string | null;
   severity: IncidentSeverity;
   status: IncidentStatus;
-  customer_id?: string;
-  transaction_id?: string;
-  affected_service?: string;
-  ai_confidence?: number;
-  root_cause?: string;
-  root_cause_confidence?: number;
-  evidence?: Record<string, unknown>;
-  resolution_summary?: string;
-  auto_resolved?: boolean;
-  channel?: string;
-  metadata?: Record<string, unknown>;
-  created_at?: string;
-  updated_at?: string;
+  customerId?: string | null;
+  transactionId?: string | null;
+  affectedService?: string | null;
+  channel: string;
+  source: string;
+  aiConfidence?: number | null;
+  rootCause?: string | null;
+  rootCauseConfidence?: number | null;
+  evidence: Record<string, unknown>;
+  resolutionSummary?: string | null;
+  autoResolved: boolean;
+  metadata: Record<string, unknown>;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
 }
 
-export interface TimelineEntry {
+export interface IncidentPage {
+  rows: Incident[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface IncidentEvent {
   id: string;
-  incident_id: string;
+  incidentId: string;
+  seq: number | string;
   step: string;
   type: 'info' | 'success' | 'error' | 'warning' | 'ai' | 'action' | 'system';
   title: string;
-  description?: string;
+  description?: string | null;
+  metadata: Record<string, unknown>;
+  actorType: string;
+  actorId?: string | null;
+  runId?: string | null;
+  createdAt: string;
+}
+
+/** UI shape consumed by ForwardTimeline (created_at snake_case kept for compat). */
+export interface TimelineEntry {
+  id: string;
+  step: string;
+  type: IncidentEvent['type'];
+  title: string;
+  description?: string | null;
   metadata?: Record<string, unknown>;
   created_at?: string;
 }
 
 export interface AgentAction {
   id: string;
-  incident_id: string;
-  incident_code?: string;
+  incidentId: string;
+  incidentCode?: string | null;
+  runId?: string | null;
+  planIndex: number;
+  actionKey: string;
+  label: string;
   tool: string;
-  action: string;
-  input?: unknown;
-  output?: unknown;
-  result: string;
   risk: RiskLevel;
-  status: string;
-  created_at?: string;
+  input: Record<string, unknown>;
+  output?: Record<string, unknown> | null;
+  status: 'pending' | 'executed' | 'failed' | 'skipped' | 'pending_approval';
+  result?: string | null;
+  executedAt?: string | null;
+  createdAt: string;
 }
 
 export interface ApprovalRequest {
   id: string;
-  incident_id?: string;
-  incident_code?: string;
-  action_key: string;
+  incidentId: string;
+  incidentCode?: string | null;
+  runId?: string | null;
+  actionKey: string;
   title: string;
-  description?: string;
+  description?: string | null;
   risk: RiskLevel;
   status: 'pending' | 'approved' | 'rejected' | 'expired';
-  ai_recommendation?: string;
-  decision_reason?: string;
-  created_at?: string;
-  decided_at?: string;
+  aiRecommendation?: string | null;
+  requestedAt: string;
+  expiresAt: string;
+  decidedByUserId?: string | null;
+  decisionReason?: string | null;
+  decidedAt?: string | null;
 }
 
-export interface IncidentDetail {
+export interface AgentRun {
+  id: string;
+  incidentId: string;
+  correlationId: string;
+  state: 'queued' | 'claimed' | 'running' | 'paused' | 'waiting_approval' | 'completed' | 'failed' | 'cancelled';
+  attempt: number;
+  maxAttempts: number;
+  statusSnapshot: Record<string, unknown>;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  error?: string | null;
+  createdAt: string;
+}
+
+/** GET /incidents/:id (incidentService.withFacts). */
+export interface IncidentFacts {
   incident: Incident;
-  timeline: TimelineEntry[];
+  events: IncidentEvent[];
   actions: AgentAction[];
-  customer?: Customer | null;
-  payment?: Payment | null;
-  booking?: Booking | null;
-  investigation: {
-    running: boolean;
-    agentState: string;
-    status: IncidentStatus;
-  };
-  allowedActions: Array<{ key: string; label: string; risk: RiskLevel }>;
+  approvals: ApprovalRequest[];
+  runs: AgentRun[];
 }
 
 export interface KpiStats {
@@ -136,13 +149,72 @@ export interface KpiStats {
   avgResolutionMinutes: number;
   automationRate: number;
   bySeverity: Record<string, number>;
-  byType: Array<{ name: string; count: number }>;
-  byRootCause: Array<{ name: string; count: number }>;
-  incidents: Incident[];
+  byRootCause: { name: string; count: number }[];
+  byType: { name: string; count: number }[];
 }
 
-export interface ActivityRow extends AgentAction {
-  incident_code?: string;
+export interface ActionDefinition {
+  key: string;
+  label: string;
+  description: string;
+  impact: string;
+  risk: RiskLevel;
+  autoExecuteThreshold: number;
+  idempotent: boolean;
+}
+
+export interface AgentStatus {
+  status: string;
+  instance: string;
+  uptimeSeconds: number;
+  tools: string[];
+  queue: { pending: number; failed: number };
+}
+
+export interface AuditEntry {
+  id: string;
+  requestId?: string | null;
+  actorType: string;
+  actorId?: string | null;
+  actorEmail?: string | null;
+  action: string;
+  targetType?: string | null;
+  targetId?: string | null;
+  before?: Record<string, unknown> | null;
+  after?: Record<string, unknown> | null;
+  ip?: string | null;
+  metadata?: Record<string, unknown> | null;
+  createdAt: string;
+}
+
+export interface AuditPage {
+  rows: AuditEntry[];
+  total: number;
+}
+
+export interface ApiKey {
+  id: string;
+  name: string;
+  prefix: string;
+  scope: string[];
+  expiresAt?: string | null;
+  lastUsedAt?: string | null;
+  createdAt: string;
+}
+
+export interface Meta {
+  env: string;
+  workerInstance: string;
+  queue: { pending: number; failed: number };
+  integrations: Array<{ provider: string; enabled: boolean; status: string }>;
+  timestamp: string;
+}
+
+export interface Health {
+  status: string;
+  uptimeSeconds: number;
+  timestamp: string;
+  dependencies: { postgres: string };
 }
 
 export interface LiveEvent {

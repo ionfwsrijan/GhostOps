@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { FlaskConical, ArrowRight } from 'lucide-react';
 import { get, endpoints } from '@/api/client';
-import { Incident } from '@/api/types';
+import { Incident, IncidentPage } from '@/api/types';
 import { Card, StatusPill, SeverityTag, ConfidenceBar, EmptyState, ErrorBanner, Tabs, GhostLoader } from '@/components/ui';
 import { useLiveEvents } from '@/hooks/useLiveEvents';
 import { timeAgo } from '@/lib/format';
@@ -23,8 +23,8 @@ export default function Investigations() {
 
   const refresh = async () => {
     try {
-      const r = await get<{ incidents: Incident[] }>(endpoints.incidents());
-      setIncidents(r.incidents);
+      const r = await get<IncidentPage>(endpoints.incidents(), { limit: 200 });
+      setIncidents(r.rows);
       setError(undefined);
     } catch (e) {
       setError((e as Error).message);
@@ -40,10 +40,10 @@ export default function Investigations() {
   useLiveEvents({ onEvent: (evt) => ['incident_detected', 'incident_status', 'incident_update'].includes(evt.type) && void refresh() });
 
   const rows = useMemo(() => {
-    let list = incidents.filter((i) => i.metadata?.agentState || i.root_cause || ['investigating', 'analyzing'].includes(i.status as string));
-    if (phase === 'in_progress') list = list.filter((i) => !i.root_cause && i.status !== 'resolved');
-    if (phase === 'root_cause_found') list = list.filter((i) => i.root_cause);
-    return [...list].sort((a, b) => new Date(b.created_at ?? 0).getTime() - new Date(a.created_at ?? 0).getTime());
+    let list = incidents.filter((i) => i.metadata?.agentState || i.rootCause || ['investigating', 'analyzing'].includes(i.status as string));
+    if (phase === 'in_progress') list = list.filter((i) => !i.rootCause && i.status !== 'resolved');
+    if (phase === 'root_cause_found') list = list.filter((i) => i.rootCause);
+    return [...list].sort((a, b) => new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime());
   }, [incidents, phase]);
 
   return (
@@ -73,14 +73,14 @@ export default function Investigations() {
 
 function InvestigationCard({ incident }: { incident: Incident }) {
   const phaseLabel =
-    incident.root_cause
+    incident.rootCause
       ? 'Root cause established'
       : (!incident.status || incident.status === 'detected')
         ? 'Classifying issue'
         : (incident.metadata?.agentState as string) ?? 'Investigating';
 
   const phaseStep =
-    incident.root_cause
+    incident.rootCause
       ? 3
       : (!incident.status || incident.status === 'detected')
         ? 1
@@ -94,7 +94,7 @@ function InvestigationCard({ incident }: { incident: Incident }) {
         <Link to={`/incidents/${incident.id}`} className="min-w-0">
           <div className="flex items-center gap-2">
             <FlaskConical className="w-4 h-4 text-ghost shrink-0" />
-            <span className="mono text-[13px] font-semibold text-slate-200 hover:text-ghost">{incident.incident_code}</span>
+            <span className="mono text-[13px] font-semibold text-slate-200 hover:text-ghost">{incident.incidentCode}</span>
           </div>
           <div className="mt-1 text-sm text-slate-400 truncate">{incident.title}</div>
         </Link>
@@ -132,16 +132,16 @@ function InvestigationCard({ incident }: { incident: Incident }) {
         </Link>
       </div>
 
-      {incident.root_cause ? (
+      {incident.rootCause ? (
         <div className="mt-3 pt-3 border-t border-white/[0.06]">
           <div className="flex items-start justify-between gap-3">
-            <span className="mono text-xs text-ghost/90 truncate">{incident.root_cause.replace(/_/g, ' ')}</span>
-            <div className="w-28 shrink-0"><ConfidenceBar value={incident.root_cause_confidence ?? incident.ai_confidence} showLabel={false} /></div>
+            <span className="mono text-xs text-ghost/90 truncate">{incident.rootCause.replace(/_/g, ' ')}</span>
+            <div className="w-28 shrink-0"><ConfidenceBar value={incident.rootCauseConfidence ?? incident.aiConfidence ?? undefined} showLabel={false} /></div>
           </div>
         </div>
       ) : null}
 
-      <div className="mt-2 text-[10px] text-slate-600 mono">{timeAgo(incident.created_at)}</div>
+      <div className="mt-2 text-[10px] text-slate-600 mono">{timeAgo(incident.createdAt)}</div>
     </Card>
   );
 }

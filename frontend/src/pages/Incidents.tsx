@@ -1,10 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Search, X } from 'lucide-react';
+import { Search, X, Sparkles } from 'lucide-react';
 import { get, endpoints } from '@/api/client';
-import { Incident } from '@/api/types';
+import { Incident, IncidentPage } from '@/api/types';
 import { Card, StatusPill, SeverityTag, ConfidenceBar, EmptyState, ErrorBanner, Tabs, GhostLoader } from '@/components/ui';
-import { SimulateButton } from '@/components/Simulator';
 import { useLiveEvents } from '@/hooks/useLiveEvents';
 import { timeAgo, truncate } from '@/lib/format';
 import { cn } from '@/lib/cn';
@@ -28,8 +27,8 @@ export default function Incidents() {
 
   const refresh = async () => {
     try {
-      const res = await get<{ incidents: Incident[] }>(endpoints.incidents());
-      setIncidents(res.incidents);
+      const res = await get<IncidentPage>(endpoints.incidents(), { limit: 200 });
+      setIncidents(res.rows);
       setError(undefined);
     } catch (e) {
       setError((e as Error).message);
@@ -50,20 +49,20 @@ export default function Incidents() {
 
   const rows = useMemo(() => {
     let list = incidents;
-    if (filter === 'active') list = list.filter((i) => i.status !== 'resolved' && i.status !== 'failed');
+    if (filter === 'active') list = list.filter((i) => i.status !== 'resolved' && i.status !== 'failed' && i.status !== 'cancelled');
     if (filter === 'resolved') list = list.filter((i) => i.status === 'resolved');
     if (filter === 'failed') list = list.filter((i) => i.status === 'failed');
     if (q.trim()) {
       const needle = q.toLowerCase();
       list = list.filter(
         (i) =>
-          i.incident_code?.toLowerCase().includes(needle) ||
+          i.incidentCode?.toLowerCase().includes(needle) ||
           i.title?.toLowerCase().includes(needle) ||
           i.issue?.toLowerCase().includes(needle) ||
-          i.root_cause?.toLowerCase().includes(needle)
+          i.rootCause?.toLowerCase().includes(needle)
       );
     }
-    return [...list].sort((a, b) => new Date(b.created_at ?? 0).getTime() - new Date(a.created_at ?? 0).getTime());
+    return [...list].sort((a, b) => new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime());
   }, [incidents, filter, q]);
 
   return (
@@ -73,7 +72,12 @@ export default function Incidents() {
           <h1 className="text-2xl font-bold tracking-tight text-slate-100">Incidents</h1>
           <p className="text-sm text-slate-500 mt-1">Every issue GhostOps detects and owns from detection to resolution</p>
         </div>
-        <SimulateButton onTriggered={() => void refresh()} />
+        <Link
+          to="/ingest"
+          className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 transition-colors"
+        >
+          <Sparkles className="w-4 h-4" /> Create incident
+        </Link>
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -104,7 +108,7 @@ export default function Incidents() {
         {loading ? (
           <div className="p-10"><GhostLoader label="Syncing incidents…" /></div>
         ) : rows.length === 0 ? (
-          <EmptyState title={q ? `No incidents match "${q}"` : 'No incidents yet'} hint={q ? undefined : 'Run a simulation to generate a live incident.'} />
+          <EmptyState title={q ? `No incidents match "${q}"` : 'No incidents yet'} hint={q ? undefined : 'Send a signal from the Ingest console to generate a live incident.'} />
         ) : (
           <table className="w-full text-sm">
             <thead>
@@ -122,19 +126,19 @@ export default function Incidents() {
               {rows.map((i) => (
                 <tr key={i.id} className="border-b border-white/[0.04] hover:bg-white/[0.02] transition-colors group">
                   <td className="px-4 py-3">
-                    <Link to={`/incidents/${i.id}`} className="mono text-[13px] font-semibold text-slate-200 group-hover:text-ghost">{i.incident_code}</Link>
+                    <Link to={`/incidents/${i.id}`} className="mono text-[13px] font-semibold text-slate-200 group-hover:text-ghost">{i.incidentCode}</Link>
                   </td>
                   <td className="px-4 py-3">
                     <Link to={`/incidents/${i.id}`} className="block max-w-[340px] truncate text-slate-300 hover:text-white">{i.title}</Link>
                     <div className="text-[11px] text-slate-600 mt-0.5 max-w-[340px] truncate">{truncate(i.issue ?? '', 70)}</div>
                   </td>
                   <td className="px-4 py-3">
-                    <span className={cn('text-xs mono', i.root_cause ? 'text-ghost/90' : 'text-slate-600')}>{i.root_cause ?? 'unidentified'}</span>
+                    <span className={cn('text-xs mono', i.rootCause ? 'text-ghost/90' : 'text-slate-600')}>{i.rootCause ?? 'unidentified'}</span>
                   </td>
                   <td className="px-4 py-3"><SeverityTag severity={i.severity} /></td>
                   <td className="px-4 py-3"><StatusPill status={i.status} /></td>
-                  <td className="px-4 py-3 w-36"><ConfidenceBar value={i.root_cause_confidence ?? i.ai_confidence} /></td>
-                  <td className="px-4 py-3 mono text-xs text-slate-500 hidden md:table-cell">{timeAgo(i.created_at)}</td>
+                  <td className="px-4 py-3 w-36"><ConfidenceBar value={i.rootCauseConfidence ?? i.aiConfidence ?? undefined} /></td>
+                  <td className="px-4 py-3 mono text-xs text-slate-500 hidden md:table-cell">{timeAgo(i.createdAt)}</td>
                 </tr>
               ))}
             </tbody>

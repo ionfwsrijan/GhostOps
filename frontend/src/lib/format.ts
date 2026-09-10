@@ -49,6 +49,7 @@ export const STATUS_LABELS: Record<IncidentStatus, string> = {
   resolving: 'Resolving',
   resolved: 'Resolved',
   failed: 'Failed',
+  cancelled: 'Cancelled',
 };
 
 export const STATUS_COLORS: Record<IncidentStatus, string> = {
@@ -59,6 +60,7 @@ export const STATUS_COLORS: Record<IncidentStatus, string> = {
   resolving: 'bg-violet-500/15 text-violet-400 border-violet-500/30',
   resolved: 'bg-success/15 text-success border-success/30',
   failed: 'bg-danger/15 text-danger border-danger/30',
+  cancelled: 'text-slate-400 bg-slate-500/10 border-slate-500/30',
 };
 
 export const SEVERITY_COLORS: Record<IncidentSeverity, string> = {

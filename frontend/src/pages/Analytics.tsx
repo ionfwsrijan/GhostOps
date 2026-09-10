@@ -22,7 +22,7 @@ import {
   Line,
 } from 'recharts';
 import { get, endpoints } from '@/api/client';
-import { KpiStats } from '@/api/types';
+import { KpiStats, IncidentPage } from '@/api/types';
 import { Card, StatCard, Section, EmptyState, ErrorBanner, GhostLoader } from '@/components/ui';
 import { useLiveEvents } from '@/hooks/useLiveEvents';
 import { timeAgo } from '@/lib/format';
@@ -36,11 +36,17 @@ const SEV_COLORS: Record<string, string> = {
 
 export default function Analytics() {
   const [stats, setStats] = useState<KpiStats | null>(null);
+  const [recentIncidents, setRecentIncidents] = useState<IncidentPage['rows']>([]);
   const [error, setError] = useState<string>();
 
   const refresh = async () => {
     try {
-      setStats(await get<KpiStats>(endpoints.stats()));
+      const [s, page] = await Promise.all([
+        get<KpiStats>(endpoints.stats()),
+        get<IncidentPage>(endpoints.incidents(), { limit: 50 }),
+      ]);
+      setStats(s);
+      setRecentIncidents(page.rows);
     } catch (e) {
       setError((e as Error).message);
     }
@@ -57,14 +63,14 @@ export default function Analytics() {
   const typeData = useMemo(() => (stats?.byType ?? []).map((t) => ({ name: t.name.replace(/_/g, ' '), count: t.count })).sort((a, b) => b.count - a.count), [stats]);
   const trendData = useMemo(
     () =>
-      (stats?.incidents ?? [])
+      recentIncidents
         .slice()
-        .sort((a, b) => new Date(a.created_at ?? 0).getTime() - new Date(b.created_at ?? 0).getTime())
+        .sort((a, b) => new Date(a.createdAt ?? 0).getTime() - new Date(b.createdAt ?? 0).getTime())
         .map((i) => ({
-          name: timeAgo(i.created_at),
+          name: timeAgo(i.createdAt),
           detected: 1,
         })),
-    [stats]
+    [recentIncidents]
   );
 
   const pieTotals = severityData.reduce((a, b) => a + b.count, 0);
@@ -177,13 +183,13 @@ export default function Analytics() {
 
           <Section title="Recent Incidents" action={<Link to="/incidents" className="text-xs text-ghost hover:text-ghost-glow inline-flex items-center gap-1">View all <ArrowRight className="w-3 h-3" /></Link>}>
             <Card className="divide-y divide-white/[0.05]">
-              {stats.incidents.slice(0, 5).map((i) => (
+              {recentIncidents.slice(0, 5).map((i) => (
                 <Link key={i.id} to={`/incidents/${i.id}`} className="flex items-center justify-between gap-4 px-4 py-3 hover:bg-white/[0.02] transition-colors group">
                   <div className="min-w-0">
-                    <span className="mono text-[13px] font-semibold text-slate-200 group-hover:text-ghost">{i.incident_code}</span>
+                    <span className="mono text-[13px] font-semibold text-slate-200 group-hover:text-ghost">{i.incidentCode}</span>
                     <span className="text-sm text-slate-500 ml-3 truncate">{i.title}</span>
                   </div>
-                  <span className="mono text-[10px] text-slate-600 shrink-0">{timeAgo(i.created_at)}</span>
+                  <span className="mono text-[10px] text-slate-600 shrink-0">{timeAgo(i.createdAt)}</span>
                 </Link>
               ))}
             </Card>

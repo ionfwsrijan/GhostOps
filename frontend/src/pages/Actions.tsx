@@ -8,6 +8,13 @@ import { useLiveEvents } from '@/hooks/useLiveEvents';
 import { timeAgo } from '@/lib/format';
 import { cn } from '@/lib/cn';
 
+function resultOf(a: AgentAction): string {
+  if (a.result) return a.result;
+  if (a.status === 'executed') return 'success';
+  if (a.status === 'pending_approval') return 'pending_approval';
+  return a.status;
+}
+
 export default function Actions() {
   const [actions, setActions] = useState<AgentAction[]>([]);
   const [loading, setLoading] = useState(true);
@@ -16,7 +23,7 @@ export default function Actions() {
   const refresh = async () => {
     try {
       const r = await get<{ actions: AgentAction[] }>(endpoints.actions());
-      setActions(r.actions.sort((x, y) => new Date(y.created_at ?? 0).getTime() - new Date(x.created_at ?? 0).getTime()));
+      setActions(r.actions.sort((x, y) => new Date(y.createdAt ?? 0).getTime() - new Date(x.createdAt ?? 0).getTime()));
       setError(undefined);
     } catch (e) {
       setError((e as Error).message);
@@ -53,7 +60,7 @@ export default function Actions() {
               {loading ? (
                 <div className="p-10"><GhostLoader label="Loading action log…" /></div>
               ) : actions.length === 0 ? (
-                <EmptyState title="No actions executed yet" hint="Simulate an incident to see GhostOps act." />
+                <EmptyState title="No actions executed yet" hint="Create an incident to see GhostOps act." />
               ) : (
                 <table className="w-full text-sm">
                   <thead>
@@ -68,18 +75,18 @@ export default function Actions() {
                   <tbody>
                     {actions.map((a) => (
                       <tr key={a.id} className="border-b border-white/[0.04] hover:bg-white/[0.02] transition-colors">
-                        <td className="px-4 py-3 mono text-xs text-slate-500 whitespace-nowrap">{timeAgo(a.created_at)}</td>
+                        <td className="px-4 py-3 mono text-xs text-slate-500 whitespace-nowrap">{timeAgo(a.createdAt)}</td>
                         <td className="px-4 py-3">
-                          <Link to={`/incidents/${a.incident_id}`} className="mono text-[13px] font-semibold text-slate-200 hover:text-ghost">{a.incident_code}</Link>
+                          <Link to={`/incidents/${a.incidentId}`} className="mono text-[13px] font-semibold text-slate-200 hover:text-ghost">{a.incidentCode ?? a.incidentId.slice(0, 8)}</Link>
                         </td>
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-2">
-                            <span className={cn('w-7 h-7 rounded-md border flex items-center justify-center shrink-0', a.result === 'pending_approval' ? 'border-warn/30 bg-warn/10 text-warn' : 'border-success/30 bg-success/10 text-success')}>
-                              {a.result === 'pending_approval' ? <ShieldCheck className="w-3.5 h-3.5" /> : <Zap className="w-3.5 h-3.5" />}
+                            <span className={cn('w-7 h-7 rounded-md border flex items-center justify-center shrink-0', a.status === 'pending_approval' ? 'border-warn/30 bg-warn/10 text-warn' : 'border-success/30 bg-success/10 text-success')}>
+                              {a.status === 'pending_approval' ? <ShieldCheck className="w-3.5 h-3.5" /> : <Zap className="w-3.5 h-3.5" />}
                             </span>
                             <div className="min-w-0">
-                              <div className="text-[13px] text-slate-200 font-medium truncate">{a.tool}</div>
-                              <div className="mono text-[10px] text-slate-600 truncate">{a.action}</div>
+                              <div className="text-[13px] text-slate-200 font-medium truncate">{a.label || a.tool}</div>
+                              <div className="mono text-[10px] text-slate-600 truncate">{a.actionKey}</div>
                             </div>
                           </div>
                         </td>
@@ -90,7 +97,7 @@ export default function Actions() {
                           </div>
                         </td>
                         <td className="px-4 py-3">
-                          <span className={cn('mono text-xs', a.result === 'success' ? 'text-success' : a.result === 'pending_approval' ? 'text-warn' : 'text-danger')}>{a.result}</span>
+                          <span className={cn('mono text-xs', resultOf(a) === 'success' ? 'text-success' : resultOf(a) === 'pending_approval' ? 'text-warn' : 'text-danger')}>{resultOf(a)}</span>
                         </td>
                       </tr>
                     ))}

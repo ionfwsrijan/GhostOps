@@ -26,8 +26,8 @@ export default function Approvals() {
 
   const refresh = async (f = filter) => {
     try {
-      const r = await get<{ approvals: ApprovalRequest[] }>(endpoints.approvals(f));
-      setApprovals(r.approvals.sort((x, y) => new Date(y.created_at ?? 0).getTime() - new Date(x.created_at ?? 0).getTime()));
+      const r = await get<{ approvals: ApprovalRequest[] }>(endpoints.approvals(f === 'rejected' ? 'rejected' : f === 'approved' ? 'approved' : 'pending'));
+      setApprovals(r.approvals.sort((x, y) => new Date(y.requestedAt).getTime() - new Date(x.requestedAt).getTime()));
       setError(undefined);
     } catch (e) {
       setError((e as Error).message);
@@ -51,7 +51,7 @@ export default function Approvals() {
     setBusyId(a.id);
     setError(undefined);
     try {
-      await post(approved ? endpoints.approve(a.id) : endpoints.reject(a.id), approved ? {} : { reason });
+      await post(endpoints.approvalDecision(a.id), { decision: approved ? 'approved' : 'rejected', reason: approved ? undefined : reason });
       setRejecting(null);
       void refresh('pending');
     } catch (e) {
@@ -92,19 +92,19 @@ export default function Approvals() {
                     </div>
                     <div className="text-xs text-slate-500 mt-1 leading-relaxed">{a.description}</div>
 
-                    {a.ai_recommendation ? (
+                    {a.aiRecommendation ? (
                       <div className="mt-2 rounded-lg border border-ghost/20 bg-ghost/[0.05] px-3 py-2 text-[11px] text-slate-300 italic">
                         <span className="mono text-ghost not-italic font-semibold mr-1.5">AI recommendation:</span>
-                        {a.ai_recommendation}
+                        {a.aiRecommendation}
                       </div>
                     ) : null}
 
                     <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-600">
-                      {a.incident_code ? (
-                        <Link to={`/incidents/${a.incident_id}`} className="mono text-ghost hover:text-ghost-glow">{a.incident_code}</Link>
+                      {a.incidentCode ? (
+                        <Link to={`/incidents/${a.incidentId}`} className="mono text-ghost hover:text-ghost-glow">{a.incidentCode}</Link>
                       ) : null}
-                      <span>raised {timeAgo(a.created_at)}</span>
-                      <span className="mono">{a.action_key}</span>
+                      <span>raised {timeAgo(a.requestedAt)}</span>
+                      <span className="mono">{a.actionKey}</span>
                     </div>
 
                     {a.status === 'pending' ? (
@@ -118,8 +118,8 @@ export default function Approvals() {
                       </div>
                     ) : (
                       <div className="mt-2 text-xs text-slate-500">
-                        {a.status === 'approved' ? 'Approved' : 'Rejected'} {a.decided_at ? `· ${timeAgo(a.decided_at)}` : ''}
-                        {a.decision_reason ? <span className="text-slate-400"> — “{a.decision_reason}”</span> : null}
+                        {a.status === 'approved' ? 'Approved' : 'Rejected'} {a.decidedAt ? `· ${timeAgo(a.decidedAt)}` : ''}
+                        {a.decisionReason ? <span className="text-slate-400"> — “{a.decisionReason}”</span> : null}
                       </div>
                     )}
                   </div>

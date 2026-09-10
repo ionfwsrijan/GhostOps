@@ -2,39 +2,66 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import {
   ArrowLeft,
-  Play,
-  ShieldCheck,
-  User,
-  CreditCard,
-  Film,
   FileSearch,
   CheckCircle2,
   Loader2,
+  Database,
+  CreditCard,
+  Radio,
+  User,
 } from 'lucide-react';
 import { get, post, endpoints } from '@/api/client';
-import { TimelineEntry, AgentAction, IncidentDetail as DetailData, Customer, Payment, Booking } from '@/api/types';
+import { TimelineEntry, AgentAction, IncidentFacts, IncidentEvent, ApprovalRequest, AgentRun } from '@/api/types';
 import { Card, StatusPill, SeverityTag, ConfidenceBar, Section, EmptyState, ErrorBanner, Button, GhostLoader } from '@/components/ui';
 import ForwardTimeline from '@/components/Timeline';
 import AgentPanel, { AgentState } from '@/components/AgentPanel';
 import { useLiveEvents } from '@/hooks/useLiveEvents';
-import { fullTime, rupees } from '@/lib/format';
+import { fullTime } from '@/lib/format';
 import { cn } from '@/lib/cn';
+
+function toTimeline(events: IncidentEvent[]): TimelineEntry[] {
+  return events.map((e) => ({
+    id: e.id,
+    step: e.step,
+    type: e.type,
+    title: e.title,
+    description: e.description ?? undefined,
+    metadata: e.metadata,
+    created_at: e.createdAt,
+  }));
+}
+
+function agentStateFor(facts: IncidentFacts): AgentState {
+  const inc = facts.incident;
+  const md = inc.metadata?.agentState as string | undefined;
+  const state =
+    md ??
+    (inc.status === 'resolved'
+      ? 'resolved'
+      : inc.status === 'awaiting_approval'
+        ? 'waiting_approval'
+        : inc.status === 'investigating'
+          ? 'investigating'
+          : 'idle');
+  const activeRun = facts.runs.find((r) => ['running', 'paused', 'waiting_approval', 'queued', 'claimed'].includes(r.state));
+  return {
+    state,
+    currentTask: (inc.metadata?.agentTask as string | undefined) ?? (activeRun ? `Plan step ${activeRun.attempt}/${activeRun.maxAttempts} (run ${activeRun.id.slice(0, 8)})` : undefined),
+    reasoning: (inc.metadata?.reasoning as string | undefined) ?? (md === 'resolved' ? 'Monitoring for regressions.' : undefined),
+    tool: (inc.metadata?.lastTool as string | undefined) ?? undefined,
+  };
+}
 
 export default function IncidentDetail() {
   const { id = '' } = useParams();
-  const [incident, setIncident] = useState<DetailData | null>(null);
-  const [timeline, setTimeline] = useState<TimelineEntry[]>([]);
-  const [actions, setActions] = useState<AgentAction[]>([]);
+  const [facts, setFacts] = useState<IncidentFacts | null>(null);
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
-      const d = await get<DetailData>(endpoints.incident(id));
-      setIncident(d);
-      setActions(d.actions);
-      const t = await get<{ timeline: TimelineEntry[] }>(endpoints.timeline(id));
-      setTimeline(t.timeline);
+      const d = await get<IncidentFacts>(endpoints.incident(id));
+      setFacts(d);
       setError(undefined);
     } catch (e) {
       setError((e as Error).message ?? 'Could not load incident');
@@ -54,16 +81,12 @@ export default function IncidentDetail() {
     },
   });
 
-  if (error && !incident) return <ErrorBanner message={error} />;
-  if (!incident) return <div className="p-10"><GhostLoader label="Loading incident…" /></div>;
+  if (error && !facts) return <ErrorBanner message={error} />;
+  if (!facts) return <div className="p-10"><GhostLoader label="Loading incident…" /></div>;
 
-  const inv = incident.investigation;
-  const agentState: AgentState = {
-    state: inv.agentState === 'idle' && incident.incident.status === 'resolved' ? 'resolved' : (inv.agentState ?? inv.status ?? 'idle'),
-    currentTask: incident.incident.metadata?.agentTask as string | undefined,
-    reasoning: (incident.incident.metadata?.reasoning as string) ?? undefined,
-    tool: incident.incident.metadata?.lastTool as string | undefined,
-  };
+  const inc = facts.incident;
+  const agentState = agentStateFor(facts);
+  const timeline = toTimeline(facts.events);
 
   const startTask = async (fn: () => Promise<void>) => {
     setBusy(true);
@@ -84,16 +107,16 @@ export default function IncidentDetail() {
           <ArrowLeft className="w-3.5 h-3.5" /> All incidents
         </Link>
         <div className="flex items-center gap-2">
-          <Button variant="default" disabled={busy} onClick={() => startTask(() => post(endpoints.investigate(id)))}>
+          <Button variant="default" disabled={busy} onClick={() => startTask(() => post(endpoints.reinvestigate(id)))}>
             {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileSearch className="w-4 h-4" />} Re-investigate
           </Button>
-          <Button variant="success" disabled={busy} onClick={() => startTask(async () => post(endpoints.verify(id)))}>
-            <Play className="w-4 h-4" /> Verify resolution
+          <Button variant="success" disabled>
+            <CheckCircle2 className="w-4 h-4" /> Auto-verified
           </Button>
         </div>
       </div>
 
-      <Header incident={incident.incident} />
+      <Header incident={inc} />
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
         <div className="xl:col-span-2 space-y-5 order-2 xl:order-1">
@@ -101,41 +124,44 @@ export default function IncidentDetail() {
         </div>
 
         <div className="space-y-5 order-1 xl:order-2">
-          <AgentPanel agentState={agentState} toolsUsed={actions.map((a) => a.tool)} />
-          {incident.incident.root_cause ? (
-            <RootCauseCard rootCause={incident.incident.root_cause} confidence={incident.incident.root_cause_confidence ?? incident.incident.ai_confidence ?? 0} evidence={incident.incident.evidence} severity={incident.incident.severity} incidentCode={incident.incident.incident_code} />
+          <AgentPanel agentState={agentState} toolsUsed={facts.actions.map((a) => a.tool)} />
+          {inc.rootCause ? (
+            <RootCauseCard incident={inc} />
           ) : null}
-          <ContextCards customer={incident.customer} payment={incident.payment} booking={incident.booking} code={incident.incident.incident_code} />
-          <ActionsHistory actions={actions} />
+          <ContextCard incident={inc} approvals={facts.approvals} />
+          <RunsCard runs={facts.runs} />
+          <ActionsHistory actions={facts.actions} />
         </div>
       </div>
     </div>
   );
 }
 
-function Header({ incident }: { incident: DetailData['incident'] }) {
+function Header({ incident }: { incident: IncidentFacts['incident'] }) {
   return (
     <div>
       <div className="flex flex-wrap items-center gap-3">
-        <h1 className="text-xl font-bold tracking-tight text-slate-100 mono">{incident.incident_code}</h1>
+        <h1 className="text-xl font-bold tracking-tight text-slate-100 mono">{incident.incidentCode}</h1>
         <StatusPill status={incident.status} />
         <SeverityTag severity={incident.severity} />
       </div>
       <p className="mt-1.5 text-sm text-slate-400 max-w-2xl">{incident.title}</p>
       <p className="text-xs text-slate-600 mt-1 mono">
-        {incident.affected_service ?? 'unknown service'} · detected {fullTime(incident.created_at)}
-        {incident.transaction_id ? ` · txn ${incident.transaction_id}` : ''}
-        {incident.auto_resolved ? ' · auto-resolved' : ''}
+        {incident.affectedService ?? 'unknown service'} · detected {fullTime(incident.createdAt)}
+        {incident.transactionId ? ` · txn ${incident.transactionId}` : ''}
+        {incident.autoResolved ? ' · auto-resolved' : ''}
       </p>
     </div>
   );
 }
 
-function RootCauseCard({ rootCause, confidence, evidence, severity, incidentCode }: { rootCause: string; confidence: number; evidence?: Record<string, unknown>; severity: string; incidentCode: string }) {
-  const err = severity === 'critical' || severity === 'high';
-  const keys = evidence ? Object.keys(evidence).slice(0, 4) : [];
+function RootCauseCard({ incident }: { incident: IncidentFacts['incident'] }) {
+  const rootCause = incident.rootCause ?? '';
+  const confidence = incident.rootCauseConfidence ?? incident.aiConfidence ?? 0;
+  const err = incident.severity === 'critical' || incident.severity === 'high';
+  const keys = incident.evidence ? Object.keys(incident.evidence).slice(0, 4) : [];
   return (
-    <Card className="p-4 border-l-2" >
+    <Card className="p-4 border-l-2">
       <div className="flex items-start justify-between">
         <div className="label flex items-center gap-1.5"><FileSearch className="w-3 h-3" /> Root cause</div>
         <span className={cn('mono text-[10px] uppercase tracking-widest', err ? 'text-danger' : 'text-warn')}>{err ? 'high severity' : 'flag'}</span>
@@ -155,13 +181,13 @@ function RootCauseCard({ rootCause, confidence, evidence, severity, incidentCode
             {keys.map((k) => (
               <div key={k} className="flex items-start gap-2">
                 <span className="text-slate-500 truncate shrink-0">{k}:</span>
-                <span className="text-slate-300 break-all truncate">{String(evidence?.[k])}</span>
+                <span className="text-slate-300 break-all truncate">{String(incident.evidence?.[k])}</span>
               </div>
             ))}
           </div>
         </div>
       ) : null}
-      <div className="mt-3 text-[10px] text-slate-600 mono">case #{incidentCode}</div>
+      <div className="mt-3 text-[10px] text-slate-600 mono">case #{incident.incidentCode}</div>
     </Card>
   );
 }
@@ -176,43 +202,39 @@ function LiveTimeline({ timeline }: { timeline: TimelineEntry[] }) {
   );
 }
 
-function ContextCards({ customer, payment, booking, code }: { customer?: Customer | null; payment?: Payment | null; booking?: Booking | null; code: string }) {
+function ContextCard({ incident, approvals }: { incident: IncidentFacts['incident']; approvals: ApprovalRequest[] }) {
   return (
     <Section title="Context" subtitle="Entities GhostOps pulled into this investigation">
       <div className="space-y-3">
         <ContextRow icon={<User className="w-4 h-4" />} label="Customer">
-          {customer ? (
-            <>
-              <div className="text-sm text-slate-200">{customer.name}</div>
-              <div className="mono text-[11px] text-slate-500">{customer.customer_code}{customer.city ? ` · ${customer.city}` : ''}{customer.loyalty_tier ? ` · ${customer.loyalty_tier}` : ''}</div>
-            </>
+          {incident.customerId ? (
+            <div className="mono text-[11px] text-slate-500">{incident.customerId}</div>
           ) : (
             <div className="text-xs text-slate-600">not linked</div>
           )}
         </ContextRow>
         <ContextRow icon={<CreditCard className="w-4 h-4" />} label="Payment">
-          {payment ? (
-            <>
-              <div className="flex items-center gap-2">
-                <span className={cn('text-[11px] font-semibold uppercase', payment.status === 'success' ? 'text-success' : 'text-warn')}>{payment.status}</span>
-                <span className="mono text-[11px] text-slate-500">{payment.transaction_id}</span>
-              </div>
-              <div className="mono text-xs text-slate-300">{rupees(payment.amount)} · {payment.payment_method} · {payment.gateway}</div>
-            </>
+          {incident.transactionId ? (
+            <div className="mono text-[11px] text-slate-500">{incident.transactionId}</div>
           ) : (
             <div className="text-xs text-slate-600">not linked</div>
           )}
         </ContextRow>
-        <ContextRow icon={<Film className="w-4 h-4" />} label="Booking">
-          {booking ? (
-            <>
-              <div className="text-sm text-slate-200">{booking.movie_title}</div>
-              <div className="mono text-[11px] text-slate-500">{booking.booking_code} · {booking.cinema ?? ''} {booking.city ?? ''} · <span className={cn(booking.status === 'confirmed' ? 'text-success' : 'text-warn')}>{booking.status}</span></div>
-            </>
-          ) : (
-            <div className="text-xs text-slate-600">{code} not yet created — GhostOps will retry/create it</div>
-          )}
+        <ContextRow icon={<Database className="w-4 h-4" />} label="Affected service">
+          <div className="mono text-[11px] text-slate-500">{incident.affectedService ?? 'unknown'}</div>
         </ContextRow>
+        <ContextRow icon={<Radio className="w-4 h-4" />} label="Channel / source">
+          <div className="mono text-[11px] text-slate-500">{incident.channel} → {incident.source}</div>
+        </ContextRow>
+        {approvals.length ? (
+          <ContextRow icon={<CheckCircle2 className="w-4 h-4" />} label="Approvals">
+            <div className="space-y-1">
+              {approvals.map((a) => (
+                <div key={a.id} className="text-[11px] text-slate-500 mono">{a.actionKey} — <span className={a.status === 'pending' ? 'text-warn' : a.status === 'approved' ? 'text-success' : 'text-danger'}>{a.status}</span></div>
+              ))}
+            </div>
+          </ContextRow>
+        ) : null}
       </div>
     </Section>
   );
@@ -230,6 +252,40 @@ function ContextRow({ icon, label, children }: { icon: React.ReactNode; label: s
   );
 }
 
+function RunsCard({ runs }: { runs: AgentRun[] }) {
+  const shown = runs.slice(0, 3);
+  return (
+    <Section title="Agent Runs" subtitle="Execution state of the autonomous loop">
+      <Card className="divide-y divide-white/[0.05]">
+        {shown.length === 0 ? (
+          <div className="p-5 text-xs text-slate-600">No runs yet.</div>
+        ) : (
+          shown.map((r) => (
+            <div key={r.id} className="px-4 py-3 flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <div className="mono text-[11px] text-slate-300 truncate">{r.id.slice(0, 8)}…</div>
+                <div className="mono text-[10px] text-slate-500 mt-0.5">attempt {r.attempt}/{r.maxAttempts}</div>
+              </div>
+              <RunStatePill state={r.state} />
+            </div>
+          ))
+        )}
+      </Card>
+    </Section>
+  );
+}
+
+function RunStatePill({ state }: { state: AgentRun['state'] }) {
+  const ok = state === 'completed' || state === 'running' || state === 'waiting_approval';
+  const bad = state === 'failed';
+  return (
+    <span className={cn('shrink-0 inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider border', bad ? 'text-danger border-danger/30 bg-danger/10' : ok ? 'text-success border-success/30 bg-success/10' : 'text-slate-500 border-white/10 bg-white/[0.03]')}>
+      <span className={cn('w-1.5 h-1.5 rounded-full', bad ? 'bg-danger' : ok ? 'bg-success' : 'bg-slate-500')} />
+      {state.replace(/_/g, ' ')}
+    </span>
+  );
+}
+
 function ActionsHistory({ actions }: { actions: AgentAction[] }) {
   const recent = actions.slice(0, 6);
   return (
@@ -241,10 +297,10 @@ function ActionsHistory({ actions }: { actions: AgentAction[] }) {
           recent.map((a) => (
             <div key={a.id} className="px-4 py-3 flex items-center justify-between gap-3">
               <div className="min-w-0">
-                <div className="text-[13px] text-slate-200 font-medium truncate">{a.tool}</div>
-                <div className="mono text-[10px] text-slate-500 truncate">{a.input ? JSON.stringify(a.input).slice(0, 60) : a.action}</div>
+                <div className="text-[13px] text-slate-200 font-medium truncate">{a.label || a.tool}</div>
+                <div className="mono text-[10px] text-slate-500 truncate">{a.input ? JSON.stringify(a.input).slice(0, 60) : a.actionKey}</div>
               </div>
-              <ActionResultPill result={a.result} />
+              {a.status === 'pending_approval' ? <PendingPill /> : <ActionResultPill result={a.result ?? (a.status === 'executed' ? 'executed' : a.status)} />}
             </div>
           ))
         )}
@@ -255,11 +311,17 @@ function ActionsHistory({ actions }: { actions: AgentAction[] }) {
 
 function ActionResultPill({ result }: { result: string }) {
   const ok = result === 'success' || result === 'executed';
-  const pending = result === 'pending_approval';
   return (
-    <span className={cn('shrink-0 inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider border', ok ? 'text-success border-success/30 bg-success/10' : pending ? 'text-warn border-warn/30 bg-warn/10' : 'text-danger border-danger/30 bg-danger/10')}>
-      {ok ? <CheckCircle2 className="w-3 h-3" /> : pending ? <ShieldCheck className="w-3 h-3" /> : <span className="w-1.5 h-1.5 rounded-full bg-danger inline-block" />}
+    <span className={cn('shrink-0 inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider border', ok ? 'text-success border-success/30 bg-success/10' : 'text-danger border-danger/30 bg-danger/10')}>
       {result}
+    </span>
+  );
+}
+
+function PendingPill() {
+  return (
+    <span className="shrink-0 inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider border text-warn border-warn/30 bg-warn/10">
+      pending approval
     </span>
   );
 }

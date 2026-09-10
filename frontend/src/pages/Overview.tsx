@@ -10,9 +10,10 @@ import {
   ShieldAlert,
   Radio,
   ChevronRight,
+  Sparkles,
 } from "lucide-react";
 import { get, endpoints } from "@/api/client";
-import { KpiStats, Incident } from "@/api/types";
+import { KpiStats, Incident, IncidentPage } from "@/api/types";
 import {
   Card,
   StatCard,
@@ -23,19 +24,23 @@ import {
   EmptyState,
   GhostLoader,
 } from "@/components/ui";
-import { SimulateButton } from "@/components/Simulator";
 import { useLiveEvents } from "@/hooks/useLiveEvents";
 import { timeAgo } from "@/lib/format";
 import { cn } from "@/lib/cn";
 
 export default function Overview() {
   const [stats, setStats] = useState<KpiStats | null>(null);
+  const [incidents, setIncidents] = useState<Incident[]>([]);
   const [error, setError] = useState<string>();
 
   const refresh = async () => {
     try {
-      const s = await get<KpiStats>(endpoints.stats());
+      const [s, page] = await Promise.all([
+        get<KpiStats>(endpoints.stats()),
+        get<IncidentPage>(endpoints.incidents(), { limit: 200 }),
+      ]);
       setStats(s);
+      setIncidents(page.rows);
     } catch (e) {
       setError((e as Error).message);
     }
@@ -63,15 +68,15 @@ export default function Overview() {
 
   const active = useMemo(
     () =>
-      (stats?.incidents ?? []).filter(
-        (i) => i.status !== "resolved" && i.status !== "failed",
+      incidents.filter(
+        (i) => i.status !== "resolved" && i.status !== "failed" && i.status !== "cancelled",
       ),
-    [stats],
+    [incidents],
   );
 
   return (
     <div className="space-y-7">
-      <Header actions={() => <SimulateButton onTriggered={refresh} />} />
+      <Header actions={() => <IngestLink />} />
       {error ? (
         <div className="text-danger text-sm">Failed to load: {error}</div>
       ) : null}
@@ -128,7 +133,7 @@ export default function Overview() {
             ) : active.length === 0 ? (
               <EmptyState
                 title="Response queue is clear"
-                hint="Run a simulation to watch GhostOps resolve one live."
+                hint="Send a signal via the Ingest console to watch GhostOps resolve it live."
               />
             ) : (
               <IncidentRows incidents={active} />
@@ -176,6 +181,17 @@ export default function Overview() {
         </div>
       </Section>
     </div>
+  );
+}
+
+function IngestLink() {
+  return (
+    <Link
+      to="/ingest"
+      className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-indigo-500 transition-colors"
+    >
+      <Sparkles className="w-4 h-4" /> Create incident
+    </Link>
   );
 }
 
@@ -290,7 +306,7 @@ function IncidentRows({ incidents }: { incidents: Incident[] }) {
             <td className="px-4 py-3">
               <Link to={`/incidents/${i.id}`} className="group">
                 <div className="font-semibold mono text-[13px] text-slate-200 group-hover:text-ghost">
-                  {i.incident_code}
+                  {i.incidentCode}
                 </div>
                 <div className="text-xs text-slate-500 mt-0.5 max-w-[300px] truncate">
                   {i.title}
@@ -305,7 +321,7 @@ function IncidentRows({ incidents }: { incidents: Incident[] }) {
             </td>
             <td className="px-4 py-3 w-40">
               <ConfidenceBar
-                value={i.ai_confidence ?? i.root_cause_confidence}
+                value={i.aiConfidence ?? i.rootCauseConfidence ?? undefined}
               />
             </td>
             <td className="px-4 py-3 hidden lg:table-cell">
@@ -322,7 +338,7 @@ function IncidentRows({ incidents }: { incidents: Incident[] }) {
               </span>
             </td>
             <td className="px-4 py-3 mono text-xs text-slate-500 hidden md:table-cell">
-              {timeAgo(i.created_at)}
+              {timeAgo(i.createdAt)}
             </td>
           </tr>
         ))}

@@ -7,12 +7,16 @@ import {
   Zap,
   ShieldCheck,
   Puzzle,
+  ScrollText,
+  Send,
   BarChart3,
   Settings,
   Radar,
+  LogOut,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { useLiveEvents } from "@/hooks/useLiveEvents";
+import { useAuth } from "@/hooks/useAuth";
 import { useCallback, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
@@ -23,6 +27,8 @@ const NAV = [
   { to: "/investigations", label: "Investigations", icon: FlaskConical },
   { to: "/actions", label: "Actions", icon: Zap },
   { to: "/approvals", label: "Approvals", icon: ShieldCheck },
+  { to: "/ingest", label: "Ingest", icon: Send },
+  { to: "/audit", label: "Audit Log", icon: ScrollText },
   { to: "/integrations", label: "Integrations", icon: Puzzle },
   { to: "/analytics", label: "Analytics", icon: BarChart3 },
   { to: "/settings", label: "Settings", icon: Settings },
@@ -105,6 +111,7 @@ function Sidebar() {
 function Header({ connected, pulse }: { connected: boolean; pulse: number }) {
   const [q, setQ] = useState("");
   const navigate = useNavigate();
+  const { user, logout } = useAuth();
   return (
     <header className="h-[76px] shrink-0 border-b border-slate-200 bg-white flex items-center gap-4 px-5 md:px-8">
       <div className="hidden md:block relative w-84">
@@ -121,10 +128,28 @@ function Header({ connected, pulse }: { connected: boolean; pulse: number }) {
       </div>
       <div className="flex-1" />
       <div className="flex items-center gap-3">
-        <div className="hidden sm:flex items-center gap-2 text-xs text-slate-500 border-r border-slate-200 pr-4">
-          <span className="w-2 h-2 rounded-full bg-success" /> Production
+        <div className="hidden md:flex items-center gap-2 text-xs text-slate-500 border-r border-slate-200 pr-4">
+          <span className="w-2 h-2 rounded-full bg-success" /> Live console
         </div>
         <LiveDot connected={connected} pulses={pulse} />
+        {user ? (
+          <div className="hidden sm:flex items-center gap-2 pl-3 border-l border-slate-200">
+            <div className="w-8 h-8 rounded-full bg-indigo-600 text-white flex items-center justify-center text-xs font-bold uppercase">
+              {(user.name?.[0] ?? user.email[0])}
+            </div>
+            <div className="leading-tight">
+              <div className="text-xs font-semibold text-slate-800">{user.name}</div>
+              <div className="text-[10px] text-slate-400 uppercase tracking-wide">{user.role}</div>
+            </div>
+            <button
+              onClick={() => void logout()}
+              title="Sign out"
+              className="ml-1 p-1.5 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-50 transition-colors"
+            >
+              <LogOut className="w-4 h-4" />
+            </button>
+          </div>
+        ) : null}
       </div>
     </header>
   );

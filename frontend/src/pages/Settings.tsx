@@ -1,40 +1,31 @@
 import { useEffect, useState } from 'react';
-import { Info, Database, Cpu, Key, ShieldCheck } from 'lucide-react';
+import { Info, Database, Cpu, Key, ShieldCheck, Activity } from 'lucide-react';
 import { get, endpoints } from '@/api/client';
+import { Health, Meta } from '@/api/types';
 import { Card, Section, ErrorBanner, GhostLoader } from '@/components/ui';
 import { cn } from '@/lib/cn';
-
-interface Health {
-  status: string;
-  service: string;
-  ai: { available: boolean; model: string };
-  database: { adapter: string };
-  time: string;
-}
 
 const ENV_BLOCKS = [
   {
     title: 'Database',
     icon: Database,
     lines: [
-      ['SUPABASE_URL', 'Your Supabase project URL'],
-      ['SUPABASE_ANON_KEY', 'Public anon key'],
-      ['SUPABASE_SERVICE_ROLE_KEY', 'Service role key for admin ops'],
+      ['DATABASE_URL', 'Postgres connection (docker-compose db)'],
     ],
   },
   {
     title: 'AI Agent',
     icon: Cpu,
     lines: [
-      ['OPENAI_API_KEY', 'For structured-output reasoning'],
-      ['OPENAI_MODEL', 'gpt-4o-mini (default)'],
+      ['HEURISTIC_MODE', 'rule-based engine (default, no key needed)'],
     ],
   },
   {
-    title: 'OPS Intake Key',
+    title: 'Sessions & Ops',
     icon: Key,
     lines: [
-      ['OPS_INTAKE_KEY', 'Shared secret that gates /api/n8n/webhook'],
+      ['SESSION_SECRET', 'seals login session cookies'],
+      ['SESSION_TTL_DAYS', 'how long sessions live'],
     ],
   },
   {
@@ -51,17 +42,23 @@ const ENV_BLOCKS = [
 
 export default function Settings() {
   const [health, setHealth] = useState<Health | null>(null);
+  const [meta, setMeta] = useState<Meta | null>(null);
   const [error, setError] = useState<string>();
 
   useEffect(() => {
-    get<Health>(endpoints.health()).then(setHealth).catch((e) => setError((e as Error).message));
+    Promise.all([get<Health>(endpoints.health()), get<Meta>(endpoints.meta())])
+      .then(([h, m]) => {
+        setHealth(h);
+        setMeta(m);
+      })
+      .catch((e) => setError((e as Error).message));
   }, []);
 
   return (
     <div className="space-y-5 max-w-4xl">
       <div>
         <h1 className="text-2xl font-bold tracking-tight text-slate-100">Settings</h1>
-        <p className="text-sm text-slate-500 mt-1">Backend health, environment variables and how to connect real systems</p>
+        <p className="text-sm text-slate-500 mt-1">Backend health, worker state and environment reference</p>
       </div>
 
       <ErrorBanner message={error} />
@@ -74,13 +71,29 @@ export default function Settings() {
             <>
               <div className="flex items-center gap-2">
                 <span className={cn('w-2.5 h-2.5 rounded-full', health.status === 'ok' ? 'bg-success animate-pulse' : 'bg-danger')} />
-                <span className="mono text-sm text-slate-200">{health.service}</span>
-                <span className="text-xs text-success uppercase tracking-wider">{health.status}</span>
+                <span className="mono text-sm text-slate-200">{health.status}</span>
+                <span className="text-xs text-success uppercase tracking-wider">{health.status === 'ok' ? 'ready' : 'degraded'}</span>
               </div>
-              <Chip label="Model" value={health.ai.model} ok={health.ai.available} okText="key present" noText="offline heuristics" />
-              <Chip label="Database" ok value={health.database.adapter === 'memory' ? 'in-memory seeded' : 'supabase postgres'} />
+              <Chip label="Uptime" value={`${Math.round((health.uptimeSeconds ?? 0) / 60)}m`} ok />
+              <Chip label="Postgres" value={health.dependencies?.postgres ?? 'unknown'} ok={health.dependencies?.postgres === 'ok'} okText="reachable" noText="unreachable" />
+              <Chip label="Worker" value={meta?.workerInstance ?? '—'} ok />
             </>
           )}
+        </Card>
+      </Section>
+
+      <Section title="Queue" subtitle="Pending and failed jobs in the worker's postgres-backed queue">
+        <Card className="p-5 flex items-center gap-6 flex-wrap">
+          <div className="flex items-center gap-2 text-sm">
+            <Activity className="w-4 h-4 text-ghost" />
+            <span className="text-slate-500 text-xs">pending</span>
+            <span className="mono text-slate-200">{meta?.queue.pending ?? '—'}</span>
+          </div>
+          <div className="flex items-center gap-2 text-sm">
+            <Activity className="w-4 h-4 text-ghost" />
+            <span className="text-slate-500 text-xs">failed</span>
+            <span className="mono text-slate-200">{meta?.queue.failed ?? '—'}</span>
+          </div>
         </Card>
       </Section>
 
@@ -106,12 +119,11 @@ export default function Settings() {
 
       <Section title="Quick Start">
         <Card className="p-5 space-y-2 text-xs text-slate-400">
-          <div className="mono text-slate-300">cp backend/.env.example backend/.env</div>
-          <div className="mono text-slate-300">cd backend && node ../node_modules/tsx/dist/cli.mjs src/index.ts</div>
-          <div className="mono text-slate-300">cd frontend && npm run dev</div>
+          <div className="mono text-slate-300">docker compose up -d</div>
+          <div className="mono text-slate-300">npm run seed --workspace=backend</div>
           <p className="pt-2 text-slate-500 leading-relaxed">
             <Info className="w-3.5 h-3.5 inline mr-1 text-ghost" />
-            Without any keys GhostOps runs fully self-contained: in-memory seeded database, heuristic reasoning engine and mock adapters for Slack/Jira/email/n8n. Add OpenAI + Supabase keys to unlock the real circuit.
+            GhostOps runs fully self-contained on the compose Postgres without external keys: heuristic reasoning engine and outbox adapters for Slack/Jira/email/n8n.
           </p>
         </Card>
       </Section>

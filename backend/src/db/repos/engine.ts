@@ -94,13 +94,13 @@ export const engineRepo = {
 
   async listApprovals(status?: ApprovalRow['status'], limit = 100): Promise<ApprovalRow[]> {
     const params: unknown[] = [limit];
-    const where = status ? `WHERE status = $2` : '';
+    const where = status ? `WHERE a.status = $2` : '';
     if (status) params.push(status);
     const { rows } = await getPool().query<ApprovalRow>(
-      `SELECT id, incident_id AS "incidentId", run_id AS "runId", action_key AS "actionKey", title, description, risk, status,
-              ai_recommendation AS "aiRecommendation", requested_at AS "requestedAt", expires_at AS "expiresAt",
-              decided_by_user_id AS "decidedByUserId", decision_reason AS "decisionReason", decided_at AS "decidedAt"
-       FROM approvals ${where} ORDER BY requested_at DESC LIMIT $1`,
+      `SELECT a.id, a.incident_id AS "incidentId", i.incident_code AS "incidentCode", a.run_id AS "runId", a.action_key AS "actionKey", a.title, a.description, a.risk, a.status,
+              a.ai_recommendation AS "aiRecommendation", a.requested_at AS "requestedAt", a.expires_at AS "expiresAt",
+              a.decided_by_user_id AS "decidedByUserId", a.decision_reason AS "decisionReason", a.decided_at AS "decidedAt"
+       FROM approvals a LEFT JOIN incidents i ON i.id = a.incident_id ${where} ORDER BY a.requested_at DESC LIMIT $1`,
       params
     );
     return rows;
@@ -186,10 +186,10 @@ export const engineRepo = {
 
   async listAllActions(limit = 200): Promise<ActionRow[]> {
     const { rows } = await getPool().query<ActionRow>(
-      `SELECT id, incident_id AS "incidentId", run_id AS "runId", plan_index AS "planIndex",
-              action_key AS "actionKey", label, tool, risk, input, output, status, result,
-              executed_at AS "executedAt", created_at AS "createdAt"
-       FROM actions ORDER BY created_at DESC LIMIT $1`,
+      `SELECT a.id, a.incident_id AS "incidentId", i.incident_code AS "incidentCode", a.run_id AS "runId", a.plan_index AS "planIndex",
+              a.action_key AS "actionKey", a.label, a.tool, a.risk, a.input, a.output, a.status, a.result,
+              a.executed_at AS "executedAt", a.created_at AS "createdAt"
+       FROM actions a LEFT JOIN incidents i ON i.id = a.incident_id ORDER BY a.created_at DESC LIMIT $1`,
       [limit]
     );
     return rows;

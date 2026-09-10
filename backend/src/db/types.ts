@@ -163,6 +163,7 @@ export interface AgentRunRow {
 export interface ApprovalRow {
   id: string;
   incidentId: string;
+  incidentCode?: string | null;
   runId?: string | null;
   actionKey: string;
   title: string;
@@ -182,6 +183,7 @@ export type ActionStatus = 'pending' | 'executed' | 'failed' | 'skipped' | 'pend
 export interface ActionRow {
   id: string;
   incidentId: string;
+  incidentCode?: string | null;
   runId?: string | null;
   planIndex: number;
   actionKey: string;
