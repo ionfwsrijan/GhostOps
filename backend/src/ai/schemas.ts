@@ -85,9 +85,12 @@ export const TOOL_CATALOG = [
   { name: 'search_logs', description: 'Search application/system logs for a transaction (read-only)' },
   { name: 'retry_booking', description: 'Re-create a missing booking from a confirmed payment (safe, idempotent)' },
   { name: 'update_booking_status', description: 'Update a booking status (mutating)' },
-  { name: 'jira_create_ticket', description: 'Create an engineering follow-up ticket' },
-  { name: 'slack_post_message', description: 'Post a message to Slack' },
-  { name: 'notify_customer', description: 'Send the customer a status update' },
+  { name: 'cancel_booking', description: 'Cancel a booking (mutating)' },
+  { name: 'create_jira_ticket', description: 'Create an engineering follow-up ticket' },
+  { name: 'send_slack_notification', description: 'Post a message to Slack' },
+  { name: 'send_customer_notification', description: 'Send the customer a status update' },
+  { name: 'collect_diagnostics', description: 'Gather diagnostics to hand to engineering' },
+  { name: 'refund_customer', description: 'Refund a payment (high risk, human approval)' },
 ] as const;
 
 export function catalogSnippet(): string {

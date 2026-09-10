@@ -1,4 +1,4 @@
-import { RiskLevel } from '../database/types.js';
+import { RiskLevel } from '../db/types.js';
 
 /**
  * Action registry — the allowlist of every action GhostOps may take.

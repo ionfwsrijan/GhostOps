@@ -1,4 +1,4 @@
-import { Incident } from '../database/types.js';
+import { IncidentRow } from '../db/types.js';
 import { classificationSchema, rootCauseSchema, actionPlanSchema, catalogSnippet, Classification, RootCauseAnalysis, ActionPlan, incidentTypes } from './schemas.js';
 import { structuredCompletion } from './llm.js';
 import { classifyHeuristically, analyzeRootCauseHeuristically, planHeuristically, RawEvidence } from './heuristics.js';
@@ -77,15 +77,15 @@ const ACTION_PLAN_JSON_SCHEMA = {
   },
 };
 
-export async function classifyIncident(incident: Incident): Promise<Classification> {
+export async function classifyIncident(incident: IncidentRow): Promise<Classification> {
   const heuristic = classifyHeuristically(incident);
 
   const user = [
-    `Incident: ${incident.incident_code} — ${incident.title}`,
+    `Incident: ${incident.incidentCode} — ${incident.title}`,
     `Issue: ${incident.issue}`,
     incident.description ? `Details: ${incident.description}` : '',
-    incident.affected_service ? `Affected service: ${incident.affected_service}` : '',
-    incident.transaction_id ? `Transaction: ${incident.transaction_id}` : '',
+    incident.affectedService ? `Affected service: ${incident.affectedService}` : '',
+    incident.transactionId ? `Transaction: ${incident.transactionId}` : '',
     '',
     'Classify this incident. Choose an investigation plan ONLY from these tools:',
     catalogSnippet(),
@@ -107,8 +107,8 @@ export async function classifyIncident(incident: Incident): Promise<Classificati
     incidentType: ai.incidentType,
     severity: ai.severity,
     entities: {
-      transactionId: ai.entities.transactionId ?? incident.transaction_id ?? null,
-      customerId: ai.entities.customerId ?? incident.customer_id ?? null,
+      transactionId: ai.entities.transactionId ?? incident.transactionId ?? null,
+      customerId: ai.entities.customerId ?? incident.customerId ?? null,
       amount: ai.entities.amount ?? helperAmount(incident),
     },
     summary: ai.summary || heuristic.summary,
@@ -118,11 +118,11 @@ export async function classifyIncident(incident: Incident): Promise<Classificati
   return merged;
 }
 
-export async function analyzeEvidence(incident: Incident, evidence: RawEvidence[]): Promise<RootCauseAnalysis> {
+export async function analyzeEvidence(incident: IncidentRow, evidence: RawEvidence[]): Promise<RootCauseAnalysis> {
   const heuristic = analyzeRootCauseHeuristically(incident, evidence);
 
   const user = [
-    `Incident: ${incident.incident_code} — ${incident.title}`,
+    `Incident: ${incident.incidentCode} — ${incident.title}`,
     'Evidence gathered by GhostOps:',
     ...evidence.map((e) => `- ${e.tool}: ${e.summary ?? (e.ok ? 'ok' : 'failed')}`),
     '',
@@ -147,11 +147,11 @@ export async function analyzeEvidence(incident: Incident, evidence: RawEvidence[
   };
 }
 
-export async function generateActionPlan(incident: Incident, analysis: RootCauseAnalysis): Promise<ActionPlan> {
+export async function generateActionPlan(incident: IncidentRow, analysis: RootCauseAnalysis): Promise<ActionPlan> {
   const heuristic = planHeuristically(incident, analysis);
 
   const user = [
-    `Incident: ${incident.incident_code} — ${incident.title}`,
+    `Incident: ${incident.incidentCode} — ${incident.title}`,
     `Root cause: ${analysis.rootCause} (confidence ${Math.round(analysis.confidence * 100)}%)`,
     `Explanation: ${analysis.explanation}`,
     '',
@@ -176,6 +176,6 @@ export async function generateActionPlan(incident: Incident, analysis: RootCause
   return ai;
 }
 
-function helperAmount(incident: Incident): number | null {
+function helperAmount(incident: IncidentRow): number | null {
   return (incident.metadata?.amount as unknown as number | undefined) ?? null;
 }

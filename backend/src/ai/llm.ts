@@ -1,13 +1,13 @@
 import OpenAI from 'openai';
 import { z } from 'zod';
-import { config, hasOpenAI } from '../config.js';
+import { env, hasOpenAI } from '../config.js';
 
 let client: OpenAI | null = null;
 
 export function llm(): OpenAI | null {
   if (client) return client;
   if (!hasOpenAI()) return null;
-  client = new OpenAI({ apiKey: config.openai.apiKey });
+  client = new OpenAI({ apiKey: env.OPENAI_API_KEY });
   return client;
 }
 
@@ -45,7 +45,7 @@ export async function structuredCompletion<T>(opts: {
       // 1) strict structured outputs
       try {
         const res = await openai.chat.completions.create({
-          model: config.openai.model,
+          model: env.OPENAI_MODEL,
           temperature,
           messages: [
             { role: 'system', content: system },
@@ -64,7 +64,7 @@ export async function structuredCompletion<T>(opts: {
 
       // 2) json_object mode (no strict schema server-side)
       const res = await openai.chat.completions.create({
-        model: config.openai.model,
+        model: env.OPENAI_MODEL,
         temperature,
         messages: [
           {
@@ -87,7 +87,7 @@ export async function structuredCompletion<T>(opts: {
       if (attempt === RETRY_LIMIT - 1) {
         try {
           const res = await openai.chat.completions.create({
-            model: config.openai.model,
+            model: env.OPENAI_MODEL,
             temperature,
             messages: [
               { role: 'system', content: `Return a JSON object matching this schema: ${JSON.stringify(jsonSchema)}` },

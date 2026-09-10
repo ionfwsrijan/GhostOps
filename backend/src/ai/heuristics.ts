@@ -1,4 +1,4 @@
-import { Incident } from '../database/types.js';
+import { IncidentRow } from '../db/types.js';
 import { Classification, RootCauseAnalysis, ActionPlan } from './schemas.js';
 
 /**
@@ -37,7 +37,7 @@ export function heuristicSeverity(content: string): Classification['severity'] {
   return 'low';
 }
 
-export function classifyHeuristically(incident: Incident): Classification {
+export function classifyHeuristically(incident: IncidentRow): Classification {
   const type = detectIncidentType(incident);
   const text = `${incident.title} ${incident.issue ?? ''} ${incident.description ?? ''}`;
   const severity = incident.severity ?? heuristicSeverity(text);
@@ -45,8 +45,8 @@ export function classifyHeuristically(incident: Incident): Classification {
     incidentType: type,
     severity,
     entities: {
-      transactionId: incident.transaction_id ?? null,
-      customerId: incident.customer_id ?? null,
+      transactionId: incident.transactionId ?? null,
+      customerId: incident.customerId ?? null,
       amount: Number((incident.metadata?.amount as unknown as number) ?? null),
     },
     summary: `Issue: ${incident.issue}. Pattern matches ${type.replace(/_/g, ' ')}.`,
@@ -66,7 +66,7 @@ export interface RawEvidence {
   summary?: string;
 }
 
-export function analyzeRootCauseHeuristically(_incident: Incident, evidence: RawEvidence[]): RootCauseAnalysis {
+export function analyzeRootCauseHeuristically(_incident: IncidentRow, evidence: RawEvidence[]): RootCauseAnalysis {
   const pay = evidence.find((e) => e.tool === 'verify_transaction');
   const booking = evidence.find((e) => e.tool === 'check_booking');
   const logs = evidence.find((e) => e.tool === 'search_logs');
@@ -142,8 +142,8 @@ export function analyzeRootCauseHeuristically(_incident: Incident, evidence: Raw
  * Build the remediation plan from root cause + incident. Returns allowlisted
  * actions only; risk + approval are decided by the action service.
  */
-export function planHeuristically(incident: Incident, analysis: RootCauseAnalysis): ActionPlan {
-  const txn = incident.transaction_id;
+export function planHeuristically(incident: IncidentRow, analysis: RootCauseAnalysis): ActionPlan {
+  const txn = incident.transactionId;
   const amount = Number((incident.metadata?.amount as unknown as number) ?? (incident.evidence as { amount?: number } | undefined)?.amount ?? 0);
 
   if (analysis.rootCause === 'database_timeout' || analysis.rootCause === 'db_connection_pool_exhaustion') {
@@ -153,7 +153,7 @@ export function planHeuristically(incident: Incident, analysis: RootCauseAnalysi
         { actionKey: 'retry_booking', params: { transactionId: txn, amount }, confidence: analysis.confidence, reasoning: 'Re-create the missing booking from the confirmed payment (idempotent).' },
         { actionKey: 'send_customer_notification', params: { subject: 'Your booking is confirmed' }, confidence: 0.95, reasoning: 'Notify the customer the booking is now confirmed.' },
         { actionKey: 'create_jira_ticket', params: {}, confidence: 0.9, reasoning: 'File an engineering ticket for the timeout remediation.' },
-        { actionKey: 'send_slack_notification', params: { channel: 'on-call', text: `${incident.incident_code}: booking creation recovered after timeout` }, confidence: 0.9, reasoning: 'Inform the on-call team.' },
+        { actionKey: 'send_slack_notification', params: { channel: 'on-call', text: `${incident.incidentCode}: booking creation recovered after timeout` }, confidence: 0.9, reasoning: 'Inform the on-call team.' },
       ],
     };
   }

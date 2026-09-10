@@ -4,15 +4,19 @@
 
 @layer base {
   :root {
-    color-scheme: dark;
+    color-scheme: light;
   }
 
   body {
-    @apply bg-base-950 text-slate-200 font-sans antialiased;
+    @apply bg-[#f4f7fb] text-slate-900 font-sans antialiased;
     background-image:
-      radial-gradient(ellipse 70% 50% at 50% -10%, rgba(34, 211, 238, 0.07), transparent),
-      linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+      radial-gradient(
+        ellipse 80% 45% at 45% -10%,
+        rgba(99, 102, 241, 0.1),
+        transparent
+      ),
+      linear-gradient(rgba(99, 102, 241, 0.035) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(99, 102, 241, 0.035) 1px, transparent 1px);
     background-size:
       auto,
       40px 40px,
@@ -27,30 +31,80 @@
     background: transparent;
   }
   ::-webkit-scrollbar-thumb {
-    @apply bg-base-700 rounded;
+    @apply bg-slate-300 rounded;
   }
   ::-webkit-scrollbar-thumb:hover {
-    @apply bg-base-600;
+    @apply bg-slate-400;
   }
 }
 
 @layer components {
+  /* Keep existing page markup readable while the command center uses light surfaces. */
+  .text-slate-100 {
+    color: #0f172a;
+  }
+  .text-slate-200 {
+    color: #1e293b;
+  }
+  .text-slate-300 {
+    color: #334155;
+  }
+  .text-slate-400 {
+    color: #64748b;
+  }
+  .text-slate-500 {
+    color: #64748b;
+  }
+  .text-slate-600 {
+    color: #94a3b8;
+  }
+  .border-white\/\[0\.06\] {
+    border-color: #e2e8f0;
+  }
+  .border-white\/\[0\.04\] {
+    border-color: #f1f5f9;
+  }
+  .border-white\/10 {
+    border-color: #e2e8f0;
+  }
+  .bg-white\/\[0\.02\] {
+    background-color: #f8fafc;
+  }
+  .bg-white\/\[0\.04\] {
+    background-color: #f8fafc;
+  }
+  .bg-base-900\/70 {
+    background-color: rgba(255, 255, 255, 0.96);
+  }
+  .bg-base-900\/60 {
+    background-color: rgba(255, 255, 255, 0.98);
+  }
+  .bg-base-900 {
+    background-color: #ffffff;
+  }
+  .bg-base-800\/80 {
+    background-color: #f8fafc;
+  }
+  .bg-base-800\/60 {
+    background-color: #f8fafc;
+  }
+
   .glass {
-    @apply bg-base-900/70 backdrop-blur-md border border-white/[0.06];
+    @apply bg-white border border-slate-200/80;
     box-shadow:
-      0 1px 0 0 rgba(255, 255, 255, 0.04) inset,
-      0 8px 24px rgba(0, 0, 0, 0.35);
+      0 1px 1px rgba(15, 23, 42, 0.02),
+      0 10px 30px rgba(15, 23, 42, 0.06);
   }
 
   .glass-hover {
-    @apply transition-colors duration-200 hover:border-ghost/30;
+    @apply transition-all duration-200 hover:border-indigo-300 hover:-translate-y-0.5 hover:shadow-lg;
   }
 
   .label {
-    @apply text-[11px] uppercase tracking-wider text-slate-500 font-medium;
+    @apply text-[11px] uppercase tracking-[0.12em] text-slate-500 font-semibold;
   }
 
   .mono {
-    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
   }
 }

@@ -1,83 +1,47 @@
-import { getDatabase, DatabaseAdapter } from '../database/index.js';
-import { Incident, IncidentStatus, IncidentCreateInput, TimelineAddInput } from '../database/types.js';
-import { sseManager } from './sseService.js';
+import { incidentRepo, opsRepo, engineRepo } from '../db/repos/index.js';
 
-export class IncidentService {
-  private db: DatabaseAdapter;
+/** Thin service layer over the incidents repos (kept for route ergonomics). */
+export const incidentService = {
+  create(input: Parameters<typeof incidentRepo.createIncident>[0]) {
+    return incidentRepo.createIncident(input);
+  },
+  get(id: string) {
+    return incidentRepo.getIncident(id);
+  },
+  list(filter?: Parameters<typeof incidentRepo.listIncidents>[0]) {
+    return incidentRepo.listIncidents(filter);
+  },
+  events(id: string, limit?: number) {
+    return incidentRepo.listEvents(id, limit);
+  },
+  stats() {
+    return incidentRepo.incidentStats();
+  },
 
-  constructor(db: DatabaseAdapter = getDatabase()) {
-    this.db = db;
-  }
-
-  async createIncidentFromComplaint(input: IncidentCreateInput): Promise<Incident> {
-    const incident = await this.db.createIncident(input);
-    await this.db.addTimeline({
-      incident_id: incident.id,
-      step: 'detected',
-      type: 'info',
-      title: 'Incident detected',
-      description: `Complaint received via ${incident.channel ?? 'support_email'}: "${input.issue}"`,
-      metadata: { source: input.channel ?? 'support_email' },
-    });
-    this.emit(incident.id, 'incident_detected', { incident: incident });
-    return incident;
-  }
-
-  async getIncident(id: string): Promise<Incident | null> {
-    return this.db.getIncident(id);
-  }
-
-  async getIncidentDetail(id: string) {
-    const incident = await this.db.getIncident(id);
+  /** Aggregate everything the frontend detail page needs in one call. */
+  async withFacts(id: string) {
+    const incident = await incidentRepo.getIncident(id);
     if (!incident) return null;
-    const [timeline, actions, customer, payment, booking] = await Promise.all([
-      this.db.listTimeline(id),
-      this.db.listAgentActions(id),
-      incident.customer_id ? this.db.getCustomerById(incident.customer_id) : Promise.resolve(null),
-      incident.transaction_id ? this.db.getPaymentByTransaction(incident.transaction_id) : Promise.resolve(null),
-      incident.transaction_id ? this.db.getBookingByTransaction(incident.transaction_id) : Promise.resolve(null),
+    const [events, actions, approvals, runs] = await Promise.all([
+      incidentRepo.listEvents(id),
+      engineRepo.listActions(id),
+      engineRepo.listApprovals(undefined, 20),
+      engineRepo.listRuns(id),
     ]);
-    return { incident, timeline, actions, customer, payment, booking };
-  }
+    return {
+      incident,
+      events,
+      actions,
+      approvals: approvals.filter((a) => a.incidentId === id),
+      runs,
+    };
+  },
 
-  async listIncidents(limit = 50): Promise<Incident[]> {
-    return this.db.listIncidents(limit);
-  }
-
-  async setStatus(id: string, status: IncidentStatus): Promise<Incident | null> {
-    const incident = await this.db.updateIncident(id, { status });
-    if (incident) {
-      this.emit(id, 'incident_status', { incident });
-      await this.db.addTimeline({
-        incident_id: id,
-        step: status,
-        type: status === 'resolved' ? 'success' : status === 'failed' ? 'error' : 'system',
-        title: `Status: ${status.replace(/_/g, ' ')}`,
-      });
-    }
-    return incident;
-  }
-
-  /**
-   * Share a status badge publish of state (used after AI phases).
-   */
-  async updatePartial(id: string, patch: Partial<Incident>): Promise<Incident | null> {
-    const incident = await this.db.updateIncident(id, patch);
-    if (incident) this.emit(id, 'incident_update', { incident });
-    return incident;
-  }
-
-  async addTimelineEntry(input: TimelineAddInput) {
-    const entry = await this.db.addTimeline(input);
-    this.emit(input.incident_id, 'timeline_event', { entry: entry });
-    return entry;
-  }
-
-  emit(incidentId: string, type: string, data: unknown) {
-    sseManager.sendToIncident(incidentId, { type, data });
-    sseManager.broadcast({ type, data, incidentId });
-  }
-}
-
-// convenience instance
-export const incidentService = new IncidentService();
+  async cancel(id: string, userId?: string): Promise<boolean> {
+    const incident = await incidentRepo.getIncident(id);
+    if (!incident) return false;
+    await incidentRepo.updateIncident(id, { status: 'cancelled' });
+    await opsRepo.writeAudit({ actor_type: 'user', actor_id: userId, action: 'incident.cancelled', target_type: 'incident', target_id: id });
+    return true;
+  },
+};

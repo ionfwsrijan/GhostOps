@@ -1,48 +1,25 @@
-import { GhostOpsAgent, ghostOpsAgent } from '../agents/ghostopsAgent.js';
-import { incidentService } from './incidentService.js';
+import { queueRepo } from '../db/repos/index.js';
+import { logger } from '../logger.js';
 
 /**
- * Investigation orchestration service — delegates to the agent and tracks
- * high-level investigation state for API consumers.
+ * Dispatches the agent for an incident. Hands the incident to the Postgres
+ * job queue so runs survive restarts and are deduped by incident.
  */
-export class InvestigationService {
-  private agent: GhostOpsAgent;
-  private running = new Set<string>();
+export const investigationService = {
+  async startAgent(incidentId: string): Promise<{ jobId?: string; deduped: boolean }> {
+    const job = await queueRepo.enqueueJob({
+      kind: 'agent_run',
+      payload: { incidentId },
+      dedupe: `agent_run:${incidentId}`,
+      maxAttempts: 5,
+    });
+    logger.info({ incidentId, jobId: job.id }, 'investigation: agent queued');
+    return { jobId: job.id, deduped: job.status === 'pending' && !!job.id };
+  },
 
-  constructor(agent: GhostOpsAgent = ghostOpsAgent) {
-    this.agent = agent;
-  }
-
-  isRunning(incidentId: string): boolean {
-    return this.running.has(incidentId);
-  }
-
-  /**
-   * Trigger (or resume) the autonomous investigation for an incident.
-   * Safe to call multiple times.
-   */
-  async investigate(incidentId: string): Promise<{ status: string }> {
-    if (this.running.has(incidentId)) {
-      return { status: 'already_running' };
-    }
-    this.running.add(incidentId);
-    try {
-      return await this.agent.run(incidentId);
-    } finally {
-      this.running.delete(incidentId);
-    }
-  }
-
-  async getInvestigationStatus(incidentId: string) {
-    const incident = await incidentService.getIncident(incidentId);
-    if (!incident) return null;
-    return {
-      incident,
-      running: this.running.has(incidentId),
-      agentState: (incident.metadata?.agentState as string) ?? (incident.status === 'resolved' ? 'resolved' : 'idle'),
-      status: incident.status,
-    };
-  }
-}
-
-export const investigationService = new InvestigationService();
+  async reconcile(incidentId: string): Promise<void> {
+    const active = await queueRepo.queueDepth();
+    logger.info({ incidentId, ...active }, 'investigation: reconcile requested');
+    await this.startAgent(incidentId);
+  },
+};

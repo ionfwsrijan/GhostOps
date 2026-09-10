@@ -1,284 +1,112 @@
-import { getDatabase, DatabaseAdapter } from '../database/index.js';
-import { Incident, RiskLevel, ApprovalRequest } from '../database/types.js';
-import { incidentService } from './incidentService.js';
-import { getActionDefinition, requiresHumanApproval, isAllowedAction } from './riskEngine.js';
-import { executeToolUntraced } from '../tools/index.js';
+import { incidentRepo, engineRepo, queueRepo, opsRepo } from '../db/repos/index.js';
+import { getActionDefinition, requiresHumanApproval, UnknownActionError } from './riskEngine.js';
+import { executeToolTraced } from '../tools/index.js';
+import { ACTION_TO_TOOL } from '../tools/mapping.js';
+import { agentRunner } from '../agents/agentRunner.js';
 import { sseManager } from './sseService.js';
+import { env } from '../config.js';
 
-export interface RecommendedAction {
-  actionKey: string;
-  params: Record<string, unknown>;
-  confidence: number;
-  reasoning: string;
-}
+export type SubmitActionResult =
+  | { mode: 'auto'; actionId: string; outcome: { success: boolean; summary: string } }
+  | { mode: 'approved'; approvalId: string; actionId: string }
+  | { mode: 'unknown'; error: string };
 
-type ToolMapping = Record<string, { tool: string; buildArgs: (incident: Incident, params: Record<string, unknown>) => Record<string, unknown> }>;
+/**
+ * High-level action submission used by the agent engine and the action center.
+ * Decides auto-execute vs. human approval via the risk engine; every decision
+ * is persisted to `actions`, the timeline, and the audit log.
+ */
+class ActionService {
+  async submitRecommendedAction(input: {
+    incident_id: string;
+    actionKey: string;
+    params?: Record<string, unknown>;
+    confidence: number;
+    reasoning?: string;
+    run_id?: string;
+    plan_index: number;
+  }): Promise<SubmitActionResult> {
+    let def;
+    try {
+      def = getActionDefinition(input.actionKey);
+    } catch (err) {
+      if (err instanceof UnknownActionError) return { mode: 'unknown', error: err.message };
+      throw err;
+    }
 
-const TOOL_MAP: ToolMapping = {
-  verify_payment: {
-    tool: 'verify_transaction',
-    buildArgs: (inc, p) => ({ transactionId: p.transactionId ?? inc.transaction_id ?? '' }),
-  },
-  check_booking: {
-    tool: 'check_booking',
-    buildArgs: (inc, p) => ({ transactionId: p.transactionId ?? inc.transaction_id ?? '' }),
-  },
-  inspect_logs: {
-    tool: 'search_logs',
-    buildArgs: (inc, p) => ({
-      transactionId: p.transactionId ?? inc.transaction_id ?? '',
-      service: (p.service as string) ?? undefined,
-      level: (p.level as 'info' | 'warn' | 'error') ?? undefined,
-    }),
-  },
-  retry_booking: {
-    tool: 'retry_booking',
-    buildArgs: (inc, p) => ({
-      transactionId: p.transactionId ?? inc.transaction_id ?? '',
-      movieTitle: (p.movieTitle as string) ?? undefined,
-      amount: p.amount != null ? Number(p.amount) : undefined,
-    }),
-  },
-  update_booking_status: {
-    tool: 'update_booking_status',
-    buildArgs: (inc, p) => ({
-      transactionId: p.transactionId ?? inc.transaction_id ?? '',
-      status: (p.status as 'confirmed' | 'cancelled' | 'refunded') ?? 'confirmed',
-    }),
-  },
-  create_jira_ticket: {
-    tool: 'jira_create_ticket',
-    buildArgs: (inc, p) => ({
-      incidentCode: inc.incident_code,
-      title: (p.title as string) ?? inc.title,
-      description: (p.description as string) ?? inc.issue,
-      priority: (p.priority as 'low' | 'medium' | 'high' | 'critical') ?? (inc.severity === 'critical' ? 'critical' : 'high'),
-    }),
-  },
-  send_slack_notification: {
-    tool: 'slack_post_message',
-    buildArgs: (inc, p) => ({
-      channel: (p.channel as 'on-call' | 'incidents' | 'engineering' | 'support') ?? 'incidents',
-      text: (p.text as string) ?? inc.title,
-      incidentCode: inc.incident_code,
-    }),
-  },
-  send_customer_notification: {
-    tool: 'notify_customer',
-    buildArgs: (inc, p) => ({
-      recipient: (p.recipient as string) ?? '',
-      subject: (p.subject as string) ?? `${inc.incident_code} — Status update`,
-      body: (p.body as string) ?? `Your booking issue is being resolved by our team.`,
-    }),
-  },
-  collect_diagnostics: {
-    tool: 'search_logs',
-    buildArgs: (inc, p) => ({
-      transactionId: p.transactionId ?? inc.transaction_id ?? '',
-      limit: 20,
-    }),
-  },
-  refund_customer: {
-    tool: 'issue_refund',
-    buildArgs: (inc, p) => ({
-      transactionId: p.transactionId ?? inc.transaction_id ?? '',
-      amount: p.amount != null ? Number(p.amount) : Number(inc.metadata?.amount ?? 0),
-      reason: (p.reason as string) ?? 'refund_for_failed_booking',
-    }),
-  },
-  // High-risk actions below resolve to an explicit approval step; they are
-  // intentionally NOT wired to a destructive tool in the MVP sandbox.
-  delete_records: { tool: 'noop_unsafe', buildArgs: () => ({}) },
-  modify_sensitive_data: { tool: 'noop_unsafe', buildArgs: () => ({}) },
-  change_configuration: { tool: 'noop_unsafe', buildArgs: () => ({}) },
-};
+    const incident = await incidentRepo.getIncident(input.incident_id);
+    if (!incident) return { mode: 'unknown', error: 'incident not found' };
+    const runId = input.run_id ?? (await engineRepo.getActiveRun(incident.id))?.id;
 
-export class ActionService {
-  private db: DatabaseAdapter;
-
-  constructor(db: DatabaseAdapter = getDatabase()) {
-    this.db = db;
-  }
-
-  /**
-   * Main entry point for the agent's recommended action.
-   * Applies the risk engine, then auto-executes or routes to human approval.
-   */
-  async submitRecommendedAction(incidentId: string, rec: RecommendedAction): Promise<{ mode: 'auto' | 'approval'; approval?: ApprovalRequest; actionOutcome?: unknown }> {
-    const incident = await this.db.getIncident(incidentId);
-    if (!incident) throw new Error(`Incident ${incidentId} not found`);
-    if (!isAllowedAction(rec.actionKey)) throw new Error(`Action "${rec.actionKey}" is not in the allowlist`);
-
-    const def = getActionDefinition(rec.actionKey);
-    const decision = requiresHumanApproval(rec.actionKey, rec.confidence);
-
-    // Always surface the recommendation to the UI
-    sseManager.sendToIncident(incidentId, {
-      type: 'recommendation',
-      data: { actionKey: rec.actionKey, label: def.label, confidence: rec.confidence, reasoning: rec.reasoning, risk: def.risk },
-    });
-
-    await incidentService.addTimelineEntry({
-      incident_id: incidentId,
-      step: 'plan',
-      type: 'ai',
-      title: `Recommendation: ${def.label}`,
-      description: `${rec.reasoning} (confidence ${Math.round(rec.confidence * 100)}%)`,
-      metadata: { actionKey: rec.actionKey, risk: def.risk, confidence: rec.confidence },
-    });
-
+    const decision = requiresHumanApproval(input.actionKey, input.confidence);
     if (decision.required) {
-      const approval = await this.db.createApproval({
-        incident_id: incidentId,
-        action_key: rec.actionKey,
+      const action = await engineRepo.createAction({
+        incident_id: incident.id,
+        run_id: runId,
+        plan_index: input.plan_index,
+        action_key: input.actionKey,
+        label: def.label,
+        tool: def.key,
+        risk: def.risk,
+        input: input.params ?? {},
+      });
+      const expires = new Date(Date.now() + env.APPROVAL_TTL_HOURS * 3600_000);
+      const approval = await engineRepo.createApproval({
+        incident_id: incident.id,
+        run_id: runId,
+        action_key: input.actionKey,
         title: def.label,
-        description: def.description,
+        description: `${input.reasoning ?? ''}\nImpact: ${def.impact}`,
         risk: def.risk,
-        status: 'pending',
-        ai_recommendation: `${rec.reasoning} — GhostOps recommends ${def.risk === 'high' ? 'human approval' : 're-evaluation'} (confidence ${Math.round(
-          rec.confidence * 100
-        )}%).`,
+        ai_recommendation: `confidence ${Math.round(input.confidence * 100)}%`,
+        expires_at: expires.toISOString(),
       });
-      await incidentService.setStatus(incidentId, 'awaiting_approval');
-      await this.db.addAgentAction({
-        incident_id: incidentId,
-        tool: def.label,
-        action: rec.actionKey,
-        input: rec.params,
-        output: { requiresApproval: true, reason: decision.reason },
-        result: 'pending_approval',
-        risk: def.risk,
-        status: 'pending_approval',
-      });
-      sseManager.sendToIncident(incidentId, { type: 'approval_requested', data: { approval } });
-      return { mode: 'approval', approval };
+      await incidentRepo.updateIncident(incident.id, { status: 'awaiting_approval' });
+      await this.timeline(incident.id, { step: 'approval', type: 'action', title: `Approval required: ${def.label}`, description: input.reasoning, metadata: { approvalId: approval.id, actionKey: input.actionKey, risk: def.risk } });
+      sseManager.sendToIncident(incident.id, { type: 'approval_requested', data: { approvalId: approval.id, actionKey: input.actionKey, label: def.label, risk: def.risk, incidentId: incident.id } });
+      await queueRepo.enqueueJob({ kind: 'approval_expiry', runAt: new Date(expires.getTime() + 30_000).toISOString(), payload: { approvalId: approval.id, incidentId: incident.id }, dedupe: `approval:${approval.id}` });
+      return { mode: 'approved', approvalId: approval.id, actionId: action.id };
     }
 
-    const actionOutcome = await this.executeAction(incidentId, rec.actionKey, rec.params);
-    return { mode: 'auto', actionOutcome };
+    const toolName = ACTION_TO_TOOL[input.actionKey];
+    if (!toolName) return { mode: 'unknown', error: `action ${input.actionKey} has no automated executor` };
+    const outcome = await executeToolTraced(toolName, { ...(input.params ?? {}), transactionId: incident.transactionId ?? undefined }, { incidentId: incident.id, runId, planIndex: input.plan_index, label: input.reasoning ?? def.label });
+    await opsRepo.writeAudit({
+      actor_type: 'system',
+      action: 'action.auto_executed',
+      target_type: 'incident',
+      target_id: incident.id,
+      metadata: { actionKey: input.actionKey, risk: def.risk, outcome: outcome.outcome.summary },
+    });
+    return { mode: 'auto', actionId: outcome.actionId ?? '', outcome: { success: outcome.outcome.success, summary: outcome.outcome.summary } };
   }
 
-  /**
-   * Execute a recommendation (post-risk-check) via its mapped tool.
-   */
-  async executeAction(incidentId: string, actionKey: string, params: Record<string, unknown>): Promise<unknown> {
-    const incident = await this.db.getIncident(incidentId);
-    if (!incident) throw new Error(`Incident ${incidentId} not found`);
-    const def = getActionDefinition(actionKey);
-    const mapping = TOOL_MAP[actionKey];
-    if (!mapping) throw new Error(`No tool mapping for action "${actionKey}"`);
+  /** Approve/reject a pending approval and resume the paused agent run. */
+  async decide(input: { approvalId: string; approval: 'approved' | 'rejected'; userId: string; reason?: string }): Promise<{ ok: boolean; error?: string }> {
+    const approval = await engineRepo.getApproval(input.approvalId);
+    if (!approval) return { ok: false, error: 'approval not found' };
+    if (approval.status !== 'pending') return { ok: false, error: `approval already ${approval.status}` };
+    if (approval.expiresAt < new Date().toISOString()) return { ok: false, error: 'approval expired' };
 
-    if (mapping.tool === 'noop_unsafe') {
-      // Human-approved destructive action — sandbox does not actually run it.
-      await this.recordExecuted(incident, actionKey, params, { approved: true, performed: false, note: 'Destructive action logged but not executed in sandbox' }, def.risk);
-      return { ok: true, mock: true };
-    }
+    const decided = await engineRepo.decideApproval(input.approvalId, input.approval, input.userId, input.reason);
+    if (!decided) return { ok: false, error: 'approval could not be decided (expired or already decided)' };
 
-    const args = mapping.buildArgs(incident, params);
-    const outcome = await executeToolUntraced(mapping.tool, args, incidentId);
-    await this.recordExecuted(incident, actionKey, params, outcome, def.risk, mapping.tool);
-    return outcome;
-  }
+    await this.timeline(approval.incidentId, { step: 'approval_decided', type: 'action', title: `Approval ${input.approval}: ${approval.actionKey}`, description: input.reason, metadata: { approvalId: input.approvalId } });
 
-  private async recordExecuted(
-    incident: Incident,
-    actionKey: string,
-    params: Record<string, unknown>,
-    output: unknown,
-    risk: RiskLevel,
-    tool?: string
-  ) {
-    const def = getActionDefinition(actionKey);
-    await this.db.addAgentAction({
-      incident_id: incident.id,
-      tool: tool ?? def.label,
-      action: actionKey,
-      input: params,
-      output,
-      result: (output as { success?: boolean }).success === false ? 'failed' : 'success',
-      risk,
-      status: 'executed',
-    });
-
-    const ok = (output as { success?: boolean }).success !== false;
-    await incidentService.addTimelineEntry({
-      incident_id: incident.id,
-      step: 'action',
-      type: ok ? 'action' : 'error',
-      title: `${def.label} — ${ok ? 'executed' : 'failed'}`,
-      description: (output as { summary?: string }).summary ?? (ok ? okMsg(def) : 'Action failed'),
-      metadata: { actionKey, risk, params },
-    });
-
-    sseManager.sendToIncident(incident.id, {
-      type: 'action_executed',
-      data: { actionKey, label: def.label, ok, output },
-    });
-  }
-
-  async getPendingApprovals(): Promise<ApprovalRequest[]> {
-    return this.db.listApprovals('pending');
-  }
-
-  async approveApproval(approvalId: string, decisionReason?: string): Promise<ApprovalRequest> {
-    const approval = await this.db.getApproval(approvalId);
-    if (!approval) throw new Error('Approval request not found');
-    if (approval.status !== 'pending') throw new Error(`Approval already ${approval.status}`);
-
-    const updated = await this.db.updateApproval(approvalId, {
-      status: 'approved',
-      decision_reason: decisionReason || 'Approved by operator',
-    });
-
-    if (approval.incident_id) {
-      await incidentService.addTimelineEntry({
-        incident_id: approval.incident_id,
-        step: 'approval',
-        type: 'success',
-        title: `Approved: ${approval.title}`,
-        description: decisionReason || 'Approved by operator',
+    // Resume the paused run out-of-band — never block the HTTP response.
+    setImmediate(() => {
+      agentRunner.continueAfterApproval(approval.incidentId, input.userId, input.approval === 'approved').catch(() => {
+        // failures already surface by the incident being marked failed
       });
-      // Execute the approved action
-      const execResult = await this.executeAction(approval.incident_id, approval.action_key, {});
-      sseManager.sendToIncident(approval.incident_id, {
-        type: 'approval_updated',
-        data: { approval: { ...updated, status: 'approved' }, execResult },
-      });
-    }
-
-    return updated as ApprovalRequest;
-  }
-
-  async rejectApproval(approvalId: string, reason: string): Promise<ApprovalRequest> {
-    const approval = await this.db.getApproval(approvalId);
-    if (!approval) throw new Error('Approval request not found');
-    if (approval.status !== 'pending') throw new Error(`Approval already ${approval.status}`);
-
-    const updated = await this.db.updateApproval(approvalId, {
-      status: 'rejected',
-      decision_reason: reason,
     });
-
-    if (approval.incident_id) {
-      await incidentService.addTimelineEntry({
-        incident_id: approval.incident_id,
-        step: 'approval',
-        type: 'warning',
-        title: `Rejected: ${approval.title}`,
-        description: reason,
-      });
-      sseManager.sendToIncident(approval.incident_id, {
-        type: 'approval_updated',
-        data: { approval: { ...updated, status: 'rejected' } },
-      });
-    }
-
-    return updated as ApprovalRequest;
+    return { ok: true };
   }
-}
 
-function okMsg(def: { label: string }) {
-  return `${def.label} completed successfully`;
+  private async timeline(incidentId: string, e: { step: string; type: 'info' | 'success' | 'error' | 'warning' | 'ai' | 'action' | 'system'; title: string; description?: string; metadata?: Record<string, unknown> }) {
+    const ev = await incidentRepo.logEvent(incidentId, { actor_type: 'system', ...e });
+    sseManager.broadcast({ type: 'timeline_event', incidentId, data: { ...ev } });
+    return ev;
+  }
 }
 
 export const actionService = new ActionService();
